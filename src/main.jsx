@@ -7,39 +7,43 @@ import { isDarkMode } from './utils/isDarkMode';
 
 function Root() {
   const [darkMode, setDarkMode] = useState(false);
+  const [isAutoMode, setIsAutoMode] = useState(true);
 
   useEffect(() => {
-    // Function to update dark mode
+    if (!isAutoMode) return;
+
     async function updateDarkMode(latitude, longitude) {
       const isDark = await isDarkMode(latitude, longitude);
       setDarkMode(isDark);
     }
 
-    // Get user's location and update dark mode
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
         updateDarkMode(latitude, longitude);
         
-        // Update every 5 minutes
         const interval = setInterval(() => {
           updateDarkMode(latitude, longitude);
-        }, 300000); // 5 minutes in milliseconds
+        }, 300000);
 
         return () => clearInterval(interval);
       },
       (error) => {
-        // Fallback to default coordinates if geolocation is denied
         console.log('Geolocation error:', error);
         updateDarkMode();
       }
     );
-  }, []);
+  }, [isAutoMode]);
+
+  const toggleDarkMode = () => {
+    setIsAutoMode(false);
+    setDarkMode(prev => !prev);
+  };
 
   return (
     <React.StrictMode>
       <div className={`${darkMode ? 'dark' : ''} font-sans`}>
-        <App />
+        <App darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
       </div>
     </React.StrictMode>
   );
