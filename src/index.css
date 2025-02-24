@@ -67,6 +67,19 @@ button:focus-visible {
   }
 }
 
+/* Added styles for mobile responsiveness */
+@media (max-width: 768px) {
+  .fixed {
+    position: absolute; /* Ensure the sidebar does not take up space when hidden */
+  }
+  .translate-x-full {
+    transform: translateX(100%); /* Ensure the sidebar is completely off-screen */
+  }
+  .-translate-x-full {
+    transform: translateX(-100%); /* Ensure the sidebar is completely off-screen */
+  }
+}
+
 html {
   font-family: Inter, sans-serif;
 }
