@@ -8,10 +8,10 @@ export default function About() {
         About Me
       </h1>
       <p className="text-[#334155] dark:text-[#94a3b8] text-lg leading-relaxed mb-8">
-        Hi, I'm John Fritter.
+        Hi, I&apos;m John Fritter.
         <br />
         <br />
-        I like figuring things out and making things work. Sometimes that's software, sometimes it's hardware, sometimes it's just a better way to do something. I've worked in semiconductor manufacturing, built full-stack apps, and spent too much time messing with gadgets and robots and tools and games. I like learning, I like solving problems, and I like making things that didn't exist before.
+        I like figuring things out and making things work. Sometimes that&apos;s software, sometimes it&apos;s hardware, sometimes it&apos;s just a better way to do something. I&apos;ve worked in semiconductor manufacturing, built full-stack apps, and spent too much time messing with gadgets and robots and tools and games. I like learning, I like solving problems, and I like making things that didn&apos;t exist before.
       </p>
       
       <div className="flex flex-col gap-4">
