@@ -23,7 +23,6 @@ export default defineConfig({
     },
   },
   shortcuts: [
-    // Define shortcuts with explicit color values
     ['app-bg', 'bg-[#f1f5f9] dark:bg-[#0f172a]'],
     ['text-primary-dm', 'text-[#0ea5e9] dark:text-[#38bdf8]'],
     ['text-secondary-dm', 'text-[#334155] dark:text-[#94a3b8]'],

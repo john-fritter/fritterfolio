@@ -11,8 +11,15 @@ export default function SidebarLayout({ children }) {
 
   return (
     <div className="fixed inset-0 flex app-bg transition-colors duration-200">
-      {/* Sidebar for both mobile and desktop */}
-      <Sidebar isOpen={isOpen} />
+      {/* Mobile Sidebar */}
+      <div className="md:hidden">
+        <Sidebar isOpen={isOpen} toggleSidebar={toggleSidebar} />
+      </div>
+      
+      {/* Desktop Sidebar */}
+      <div className="hidden md:block">
+        <Sidebar isOpen={true} toggleSidebar={toggleSidebar} />
+      </div>
       
       <main className="w-full md:ml-64 flex-1 p-4 md:p-8 overflow-auto">
         {children}

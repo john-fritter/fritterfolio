@@ -26,8 +26,8 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
 
   const { label, icon, bgColor } = getModeInfo();
 
-  const handleClick = () => {
-    if (window.innerWidth < 768) {  // Only toggle on mobile
+  const handleNavClick = () => {
+    if (isOpen) {
       toggleSidebar();
     }
   };
@@ -39,15 +39,15 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
         
       {/* Main Content */}
       <div className="flex-1 p-6 overflow-y-auto">
-        <NavLink to="/" className="text-2xl font-bold text-primary-dm mb-8 block hover:text-accent-dm transition-colors no-underline" onClick={handleClick}>
+        <NavLink to="/" className="text-2xl font-bold text-primary-dm mb-8 block hover:text-accent-dm transition-colors no-underline" onClick={handleNavClick}>
           John Fritter
         </NavLink>
 
         <div className="space-y-2">
-          <NavLink to="/about" className={navLinkClasses} onClick={handleClick}>
+          <NavLink to="/about" className={navLinkClasses} onClick={handleNavClick}>
             About Me
           </NavLink>
-          <NavLink to="/adventure" className={navLinkClasses} onClick={handleClick}>
+          <NavLink to="/adventure" className={navLinkClasses} onClick={handleNavClick}>
             Adventure
           </NavLink>
         </div>
