@@ -15,9 +15,19 @@ export default function Root() {
     }
   }, [mode]);
 
+  const cycleMode = () => {
+    setMode(current => {
+      switch (current) {
+        case 'auto': return 'dark';
+        case 'dark': return 'light';
+        default: return 'auto';  // 'light' goes back to 'auto'
+      }
+    });
+  };
+
   return (
     <div className={isDark ? 'dark' : ''}>
-      <App mode={mode} setMode={setMode} isDark={isDark} />
+      <App mode={mode} cycleMode={cycleMode} isDark={isDark} />
     </div>
   );
 } 
