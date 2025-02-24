@@ -6,15 +6,18 @@ import '@fontsource/inter'  // Add this import at the top
 import { isDarkMode } from './utils/isDarkMode';
 
 function Root() {
-  const [darkMode, setDarkMode] = useState(false);
-  const [isAutoMode, setIsAutoMode] = useState(true);
+  const [mode, setMode] = useState('auto');  // 'light', 'dark', or 'auto'
+  const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    if (!isAutoMode) return;
+    if (mode !== 'auto') {
+      setIsDark(mode === 'dark');
+      return;
+    }
 
     async function updateDarkMode(latitude, longitude) {
-      const isDark = await isDarkMode(latitude, longitude);
-      setDarkMode(isDark);
+      const shouldBeDark = await isDarkMode(latitude, longitude);
+      setIsDark(shouldBeDark);
     }
 
     navigator.geolocation.getCurrentPosition(
@@ -33,17 +36,22 @@ function Root() {
         updateDarkMode();
       }
     );
-  }, [isAutoMode]);
+  }, [mode]);
 
-  const toggleDarkMode = () => {
-    setIsAutoMode(false);
-    setDarkMode(prev => !prev);
+  const cycleMode = () => {
+    setMode(current => {
+      switch (current) {
+        case 'auto': return 'dark';
+        case 'dark': return 'light';
+        default: return 'auto';  // 'light' goes back to 'auto'
+      }
+    });
   };
 
   return (
     <React.StrictMode>
-      <div className={`${darkMode ? 'dark' : ''} font-sans`}>
-        <App darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
+      <div className={`${isDark ? 'dark' : ''} font-sans`}>
+        <App mode={mode} cycleMode={cycleMode} />
       </div>
     </React.StrictMode>
   );

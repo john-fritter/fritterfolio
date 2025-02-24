@@ -4,9 +4,9 @@ import SidebarLayout from "./layouts/SidebarLayout";
 import About from "./pages/About";
 import Adventure from "./pages/Adventure";
 
-export default function App({ darkMode, toggleDarkMode }) {
+export default function App({ mode, cycleMode }) {
   return (
-    <ThemeContext.Provider value={{ darkMode, toggleDarkMode }}>
+    <ThemeContext.Provider value={{ mode, cycleMode }}>
       <Router>
         <SidebarLayout>
           <Routes>

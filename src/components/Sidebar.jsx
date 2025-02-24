@@ -4,7 +4,7 @@ import { useTheme } from "../context/ThemeContext";
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
-  const { darkMode, toggleDarkMode } = useTheme();
+  const { mode, cycleMode } = useTheme();
 
   const navLinkClasses = ({ isActive }) => `
     block px-4 py-2 rounded-lg transition-colors
@@ -13,6 +13,19 @@ export default function Sidebar() {
       : 'text-secondary-dm hover-highlight-dm hover:bg-primary/5 dark:hover:bg-dark-primary/5'
     }
   `;
+
+  const getModeInfo = () => {
+    switch (mode) {
+      case 'light':
+        return { label: 'L', icon: '💡', bgColor: 'bg-secondary/10' };
+      case 'dark':
+        return { label: 'D', icon: '🔅', bgColor: 'bg-secondary/30' };
+      default:
+        return { label: 'A', icon: '⚡', bgColor: 'bg-primary/20' };
+    }
+  };
+
+  const { label, icon, bgColor } = getModeInfo();
 
   return (
     <>
@@ -31,7 +44,7 @@ export default function Sidebar() {
         ${isOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0`}>
         
         {/* Main Content */}
-        <div className="flex-1 p-6">
+        <div className="flex-1 p-6 overflow-y-auto">
           <div className="text-2xl font-bold text-primary-dm mb-8">John Fritter</div>
 
           <div className="space-y-2">
@@ -44,19 +57,27 @@ export default function Sidebar() {
           </div>
         </div>
         
-        {/* DarkMode Toggle */}
-        <div className="p-6 pt-0 flex items-center gap-2 text-sm text-secondary-dm">
-          <span>{darkMode ? 'Dark' : 'Light'}</span>
+        {/* Mode Toggle */}
+        <div className="p-6 pb-4 flex-shrink-0">
           <button
-            onClick={toggleDarkMode}
-            className="relative inline-flex h-5 w-9 items-center rounded-full bg-secondary/20 
-              dark:bg-dark-secondary/20 transition-colors duration-300"
+            onClick={cycleMode}
+            className={`
+              group relative flex items-center justify-center
+              w-8 h-8 rounded-full ${bgColor}
+              transition-colors duration-300
+              hover:bg-primary/10 dark:hover:bg-dark-primary/10
+            `}
+            title={`Theme: ${mode}`}
           >
-            <div className={`
-              absolute inset-y-0.5 left-0.5 w-4 aspect-square rounded-full 
-              bg-secondary dark:bg-dark-secondary transition-transform duration-300
-              ${darkMode ? 'translate-x-[10px]' : ''}
-            `}/>
+            <span className="text-lg">{icon}</span>
+            <span className="
+              absolute -top-1 -right-1 
+              text-[10px] font-medium text-secondary-dm 
+              bg-white dark:bg-dark-background 
+              rounded-full w-4 h-4 flex items-center justify-center
+            ">
+              {label}
+            </span>
           </button>
         </div>
       </nav>
