@@ -3,25 +3,35 @@ import App from "./App.jsx";
 import { isDarkMode } from './utils/isDarkMode';
 
 export default function Root() {
-  const [mode, setMode] = useState('auto');  // 'light', 'dark', or 'auto'
+  const [mode, setMode] = useState(() => {
+    return localStorage.getItem("mode") || "auto";
+  });
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    // Update isDark based on mode and system preference
-    if (mode === 'auto') {
-      setIsDark(isDarkMode());
-    } else {
-      setIsDark(mode === 'dark');
+    async function updateDarkMode() {
+      if (mode === 'auto') {
+        const darkMode = await isDarkMode(); 
+        setIsDark(darkMode);
+      } else {
+        setIsDark(mode === 'dark');
+      }
     }
+
+    updateDarkMode();
   }, [mode]);
 
   const cycleMode = () => {
-    setMode(current => {
+    setMode((current) => {
+      let newMode;
       switch (current) {
-        case 'auto': return 'dark';
-        case 'dark': return 'light';
-        default: return 'auto';  // 'light' goes back to 'auto'
+        case 'auto': newMode = 'dark'; break;
+        case 'dark': newMode = 'light'; break;
+        default: newMode = 'auto';
       }
+
+      localStorage.setItem("mode", newMode);
+      return newMode;
     });
   };
 
@@ -30,4 +40,4 @@ export default function Root() {
       <App mode={mode} cycleMode={cycleMode} isDark={isDark} />
     </div>
   );
-} 
+}

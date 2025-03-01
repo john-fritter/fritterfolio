@@ -27,7 +27,7 @@ export default function SidebarLayout({ children }) {
       
       {/* Mobile Menu Button */}
       <button 
-        className="md:hidden p-2 fixed top-4 left-4 text-primary-dm hover-highlight-dm rounded-lg 
+        className="md:hidden p-2 fixed top-1 left-1 text-primary-dm hover-highlight-dm rounded-lg 
           bg-white dark:bg-dark-background shadow-md hover:shadow-lg transition-all" 
         onClick={toggleSidebar}
       >
