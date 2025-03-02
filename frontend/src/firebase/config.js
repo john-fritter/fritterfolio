@@ -3,12 +3,12 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyB7kZvC03p_a9w8za5p4fdEQq5P3h9vUdg",
+  authDomain: "fritterfolio-login.firebaseapp.com",
+  projectId: "fritterfolio-login",
+  storageBucket: "fritterfolio-login.firebasestorage.app",
+  messagingSenderId: "525725976220",
+  appId: "1:525725976220:web:886fcff9f482064bef0f59"
 };
 
 // Initialize Firebase
