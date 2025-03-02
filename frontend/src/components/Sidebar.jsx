@@ -50,6 +50,12 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
           <NavLink to="/adventure" className={navLinkClasses} onClick={handleNavClick}>
             Adventure
           </NavLink>
+          <NavLink to="/grocery" className={navLinkClasses} onClick={handleNavClick}>
+            Grocery List
+          </NavLink>
+          <NavLink to="/login" className={navLinkClasses} onClick={handleNavClick}>
+            Login
+          </NavLink>
         </div>
       </div>
       
