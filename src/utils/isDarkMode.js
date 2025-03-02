@@ -1,11 +1,3 @@
-function convertUTCToLocal(utcString) {
-  return new Date(
-    new Date(utcString).toLocaleString("en-US", {
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
-    })
-  );
-}
-
 async function getSunriseSunset(latitude, longitude) {
   try {
     const response = await fetch(
@@ -14,9 +6,26 @@ async function getSunriseSunset(latitude, longitude) {
     const data = await response.json();
 
     if (data.status === 'OK') {
-      const sunrise = convertUTCToLocal(data.results.sunrise);
-      const sunset = convertUTCToLocal(data.results.sunset);
-      return { sunrise, sunset };
+      // Create date objects directly from the UTC strings
+      const sunriseUTC = new Date(data.results.sunrise);
+      const sunsetUTC = new Date(data.results.sunset);
+      
+      // Ensure we're using today's date for sunrise and sunset
+      const today = new Date();
+      const sunriseToday = new Date(today.setHours(
+        sunriseUTC.getHours(),
+        sunriseUTC.getMinutes(),
+        sunriseUTC.getSeconds()
+      ));
+      
+      today.setHours(0, 0, 0, 0); // Reset to beginning of day
+      const sunsetToday = new Date(today.setHours(
+        sunsetUTC.getHours(),
+        sunsetUTC.getMinutes(),
+        sunsetUTC.getSeconds()
+      ));
+      
+      return { sunrise: sunriseToday, sunset: sunsetToday };
     }
   } catch (error) {
     console.error('Error fetching sunrise/sunset times:', error);
@@ -60,5 +69,8 @@ export async function isDarkMode() {
   const { sunrise, sunset } = await getSunriseSunset(latitude, longitude);
   const now = new Date();
 
-  return now < sunrise || now > sunset;
+  // Check if the current time is before sunrise or after sunset
+  const isDark = now < sunrise || now > sunset;
+
+  return isDark;
 }
