@@ -1,8 +1,8 @@
 import PropTypes from 'prop-types';
-import Sidebar from "../components/Sidebar";
 import { useState } from "react";
+import Sidebar from "../components/Sidebar";
 
-export default function SidebarLayout({ children }) {
+export default function CenteredLayout({ children }) {
   const [isOpen, setIsOpen] = useState(false);
 
   const toggleSidebar = () => {
@@ -21,9 +21,11 @@ export default function SidebarLayout({ children }) {
         <Sidebar isOpen={true} toggleSidebar={toggleSidebar} />
       </div>
       
-      {/* Main Content */}
-      <main className={`w-full md:ml-32 flex-1 p-4 md:p-8 overflow-hidden`}>
-        {children}
+      {/* Simple centered content */}
+      <main className="w-full md:ml-64 flex-1 overflow-auto flex items-center justify-center">
+        <div className="w-[90%] sm:w-[350px] md:w-[350px]">
+          {children}
+        </div>
       </main>
       
       {/* Mobile Menu Button */}
@@ -38,6 +40,6 @@ export default function SidebarLayout({ children }) {
   );
 }
 
-SidebarLayout.propTypes = {
+CenteredLayout.propTypes = {
   children: PropTypes.node.isRequired,
-};
+}; 

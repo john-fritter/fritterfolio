@@ -14,15 +14,13 @@ export default function App({ mode, cycleMode, isDark }) {
     <ThemeContext.Provider value={{ mode, cycleMode, isDark }}>
       <AuthProvider>
         <Router>
-          <SidebarLayout>
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/about" element={<About />} />
-              <Route path="/adventure" element={<Adventure />} />
-              <Route path="/grocery" element={<Grocery />} />
-              <Route path="/login" element={<Login />} />
-            </Routes>
-          </SidebarLayout>
+          <Routes>
+            <Route path="/" element={<SidebarLayout><Home /></SidebarLayout>} />
+            <Route path="/about" element={<SidebarLayout><About /></SidebarLayout>} />
+            <Route path="/adventure" element={<SidebarLayout><Adventure /></SidebarLayout>} />
+            <Route path="/grocery" element={<SidebarLayout><Grocery /></SidebarLayout>} />
+            <Route path="/login" element={<SidebarLayout><Login /></SidebarLayout>} />
+          </Routes>
         </Router>
       </AuthProvider>
     </ThemeContext.Provider>
