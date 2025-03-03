@@ -1,14 +1,12 @@
 import PropTypes from 'prop-types';
 import { NavLink, useNavigate } from "react-router-dom";
 import { useTheme } from "../context/ThemeContext";
-import { auth } from '../firebase/config';
-import { signOut } from 'firebase/auth';
-import { useAuthState } from 'react-firebase-hooks/auth';
 import { useState } from 'react';
+import { useAuth } from '../context/useAuth';
 
 export default function Sidebar({ isOpen, toggleSidebar }) {
   const { mode, cycleMode } = useTheme();
-  const [user] = useAuthState(auth);
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -56,7 +54,7 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
 
   const confirmLogout = async () => {
     try {
-      await signOut(auth);
+      await logout();
       setShowLogoutConfirm(false);
       navigate('/');
     } catch (error) {

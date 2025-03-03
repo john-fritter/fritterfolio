@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import App from "./App.jsx";
 import { isDarkMode } from './utils/isDarkMode';
+import { AuthProvider } from './context/AuthProvider';
 
 export default function Root() {
   const [mode, setMode] = useState(() => {
@@ -37,7 +38,9 @@ export default function Root() {
 
   return (
     <div className={isDark ? 'dark' : ''}>
-      <App mode={mode} cycleMode={cycleMode} isDark={isDark} />
+      <AuthProvider>
+        <App mode={mode} cycleMode={cycleMode} isDark={isDark} />
+      </AuthProvider>
     </div>
   );
 }

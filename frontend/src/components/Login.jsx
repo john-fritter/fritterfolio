@@ -1,145 +1,123 @@
-import { useState, useEffect } from 'react';
-import { auth } from '../firebase/config';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/useAuth';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  
   const navigate = useNavigate();
-
-  const handleAuth = async (e) => {
+  const { login, register } = useAuth();
+  
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    
-    // Validate passwords match when signing up
-    if (isSignUp && password !== confirmPassword) {
-      setError('Passwords do not match.');
-      return;
-    }
-    
     setLoading(true);
-
+    
     try {
-      if (isSignUp) {
-        await createUserWithEmailAndPassword(auth, email, password);
+      if (isRegistering) {
+        // Validate passwords match for registration
+        if (password !== confirmPassword) {
+          throw new Error('Passwords do not match');
+        }
+        
+        // Register with email and password (no name required)
+        await register(email, password);
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        await login(email, password);
       }
       
-      // Get redirect path from sessionStorage or default to home
+      // Redirect to the homepage or intended destination
       const redirectPath = sessionStorage.getItem('loginRedirect') || '/';
-      sessionStorage.removeItem('loginRedirect'); // Clear after use
+      sessionStorage.removeItem('loginRedirect');
       navigate(redirectPath);
     } catch (error) {
-      let errorMessage = 'Authentication failed. Please try again.';
-      
-      // Provide more specific error messages
-      if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address format.';
-      } else if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        errorMessage = 'Invalid email or password.';
-      } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'Password should be at least 6 characters.';
-      } else if (error.code === 'auth/email-already-in-use') {
-        errorMessage = 'Email is already in use. Try logging in instead.';
-      }
-      
-      setError(errorMessage);
+      setError(error.message);
     } finally {
       setLoading(false);
     }
   };
-
-  // Clear confirm password when switching between login/signup
-  useEffect(() => {
-    setConfirmPassword('');
-    setError('');
-  }, [isSignUp]);
-
+  
   return (
-    <div className="space-y-8 max-w-3xl">
-      <div className="app-bg shadow-lg rounded-lg p-4 sm:p-6 w-[90%] max-w-sm">
-        <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-primary-dm text-center">
-          {isSignUp ? 'Create an Account' : 'Login to Your Account'}
-        </h2>
+    <div className="max-w-md mx-auto mt-8 p-6 bg-white dark:bg-dark-background rounded-lg shadow-md">
+      <h1 className="text-2xl font-bold mb-6 text-center text-secondary-dm">
+        {isRegistering ? 'Create an Account' : 'Login to Your Account'}
+      </h1>
+      
+      {error && (
+        <div className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded">
+          {error}
+        </div>
+      )}
+      
+      <form onSubmit={handleSubmit}>
+        <div className="mb-4">
+          <label className="block text-secondary-dm text-sm font-medium mb-2">
+            Email
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
+            required
+          />
+        </div>
         
-        {error && (
-          <div className="mb-4 p-2 sm:p-3 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg text-sm">
-            {error}
+        <div className="mb-4">
+          <label className="block text-secondary-dm text-sm font-medium mb-2">
+            Password
+          </label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
+            required
+          />
+        </div>
+        
+        {isRegistering && (
+          <div className="mb-6">
+            <label className="block text-secondary-dm text-sm font-medium mb-2">
+              Confirm Password
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full p-2 border rounded focus:outline-none focus:ring-2 focus:ring-primary"
+              required
+            />
           </div>
         )}
         
-        <form onSubmit={handleAuth} className="space-y-3 sm:space-y-4">
-          <div>
-            <label htmlFor="email" className="block mb-1 text-xs sm:text-sm font-medium text-secondary-dm">
-              Email Address
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-2 sm:p-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-dark-background/50 text-secondary-dm focus:ring-2 focus:ring-primary dark:focus:ring-dark-primary focus:border-transparent text-sm"
-              required
-            />
-          </div>
-          
-          <div>
-            <label htmlFor="password" className="block mb-1 text-xs sm:text-sm font-medium text-secondary-dm">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full p-2 sm:p-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-dark-background/50 text-secondary-dm focus:ring-2 focus:ring-primary dark:focus:ring-dark-primary focus:border-transparent text-sm"
-              required
-            />
-          </div>
-          
-          {/* Only show confirm password field when signing up */}
-          {isSignUp && (
-            <div>
-              <label htmlFor="confirmPassword" className="block mb-1 text-xs sm:text-sm font-medium text-secondary-dm">
-                Confirm Password
-              </label>
-              <input
-                id="confirmPassword"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full p-2 sm:p-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-dark-background/50 text-secondary-dm focus:ring-2 focus:ring-primary dark:focus:ring-dark-primary focus:border-transparent text-sm"
-                required
-              />
-            </div>
-          )}
-          
+        <div className="flex flex-col gap-4">
           <button
             type="submit"
             disabled={loading}
-            className={`w-full py-2 sm:py-3 px-3 sm:px-4 rounded-lg bg-primary text-white font-medium transition-colors text-sm sm:text-base
-              hover:bg-highlight dark:bg-dark-primary dark:hover:bg-dark-highlight
-              ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+            className="w-full bg-primary text-white py-2 px-4 rounded hover:bg-highlight dark:hover:bg-dark-highlight transition-colors duration-200 disabled:opacity-50"
           >
-            {loading ? 'Processing...' : isSignUp ? 'Sign Up' : 'Login'}
+            {loading ? 'Processing...' : isRegistering ? 'Register' : 'Login'}
           </button>
-        </form>
-        
-        <div className="mt-4 sm:mt-6 text-center">
+          
           <button
-            onClick={() => setIsSignUp(!isSignUp)}
-            className="text-primary-dm hover:text-accent-dm transition-colors text-sm"
+            type="button"
+            onClick={() => {
+              setIsRegistering(!isRegistering);
+              setError('');
+              setConfirmPassword('');
+            }}
+            className="w-full text-primary-dm py-2 px-4 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors duration-200"
           >
-            {isSignUp ? 'Already have an account? Login' : "Don't have an account? Sign Up"}
+            {isRegistering ? 'Already have an account? Login' : 'Need an account? Register'}
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }

@@ -1,4 +1,17 @@
+import { useEffect } from 'react';
+import { useAuth } from '../context/useAuth';
+
 export default function Home() {
+  const { user } = useAuth();
+  
+  useEffect(() => {
+    console.log('Current auth state:', { 
+      isLoggedIn: !!user, 
+      user,
+      token: localStorage.getItem('token')
+    });
+  }, [user]);
+  
   return (
     <div className="space-y-8 max-w-3xl">
       <h1 className="text-primary-dm text-4xl font-bold">
