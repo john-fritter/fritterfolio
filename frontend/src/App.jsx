@@ -7,7 +7,7 @@ import Adventure from "./pages/Adventure";
 import Grocery from "./pages/Grocery";
 import Login from "./components/Login";
 import PropTypes from 'prop-types';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider } from './context/AuthProvider';
 
 export default function App({ mode, cycleMode, isDark }) {
   return (

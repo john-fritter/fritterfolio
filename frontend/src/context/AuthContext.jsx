@@ -1,17 +1,12 @@
 import { createContext, useContext } from 'react';
-import { useAuthState } from 'react-firebase-hooks/auth';
-import { auth } from '../firebase/config';
 
-const AuthContext = createContext();
+export const AuthContext = createContext();
 
-export function AuthProvider({ children }) {
-  const [user, loading, error] = useAuthState(auth);
-  
-  return (
-    <AuthContext.Provider value={{ user, loading, error }}>
-      {children}
-    </AuthContext.Provider>
-  );
+// Custom hook to use the auth context
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 }
-
-export const useAuth = () => useContext(AuthContext); 
