@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { auth } from '../firebase/config';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,6 +15,13 @@ export default function Login() {
   const handleAuth = async (e) => {
     e.preventDefault();
     setError('');
+    
+    // Validate passwords match when signing up
+    if (isSignUp && password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    
     setLoading(true);
 
     try {
@@ -22,7 +30,11 @@ export default function Login() {
       } else {
         await signInWithEmailAndPassword(auth, email, password);
       }
-      navigate('/');
+      
+      // Get redirect path from sessionStorage or default to home
+      const redirectPath = sessionStorage.getItem('loginRedirect') || '/';
+      sessionStorage.removeItem('loginRedirect'); // Clear after use
+      navigate(redirectPath);
     } catch (error) {
       let errorMessage = 'Authentication failed. Please try again.';
       
@@ -43,23 +55,25 @@ export default function Login() {
     }
   };
 
+  // Clear confirm password when switching between login/signup
+  useEffect(() => {
+    setConfirmPassword('');
+    setError('');
+  }, [isSignUp]);
+
   return (
-    <div className="flex items-center justify-center h-full w-full">
-      <div
-        className="app-bg shadow-lg rounded-lg p-4 sm:p-6 w-[90%] max-w-sm mx-auto
-                   md:-translate-x-[40px] lg:-translate-x-[60px] xl:-translate-x-[80px]
-                   overflow-visible"
-      >
+    <div className="space-y-8 max-w-3xl">
+      <div className="app-bg shadow-lg rounded-lg p-4 sm:p-6 w-[90%] max-w-sm">
         <h2 className="text-xl sm:text-2xl font-bold mb-4 sm:mb-6 text-primary-dm text-center">
           {isSignUp ? 'Create an Account' : 'Login to Your Account'}
         </h2>
-
+        
         {error && (
           <div className="mb-4 p-2 sm:p-3 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg text-sm">
             {error}
           </div>
         )}
-
+        
         <form onSubmit={handleAuth} className="space-y-3 sm:space-y-4">
           <div>
             <label htmlFor="email" className="block mb-1 text-xs sm:text-sm font-medium text-secondary-dm">
@@ -74,7 +88,7 @@ export default function Login() {
               required
             />
           </div>
-
+          
           <div>
             <label htmlFor="password" className="block mb-1 text-xs sm:text-sm font-medium text-secondary-dm">
               Password
@@ -88,7 +102,24 @@ export default function Login() {
               required
             />
           </div>
-
+          
+          {/* Only show confirm password field when signing up */}
+          {isSignUp && (
+            <div>
+              <label htmlFor="confirmPassword" className="block mb-1 text-xs sm:text-sm font-medium text-secondary-dm">
+                Confirm Password
+              </label>
+              <input
+                id="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full p-2 sm:p-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-dark-background/50 text-secondary-dm focus:ring-2 focus:ring-primary dark:focus:ring-dark-primary focus:border-transparent text-sm"
+                required
+              />
+            </div>
+          )}
+          
           <button
             type="submit"
             disabled={loading}
@@ -99,7 +130,7 @@ export default function Login() {
             {loading ? 'Processing...' : isSignUp ? 'Sign Up' : 'Login'}
           </button>
         </form>
-
+        
         <div className="mt-4 sm:mt-6 text-center">
           <button
             onClick={() => setIsSignUp(!isSignUp)}

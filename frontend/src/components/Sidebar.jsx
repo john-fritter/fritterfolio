@@ -45,6 +45,8 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
       setShowLogoutConfirm(true);
     } else {
       // User is not logged in, navigate to login page
+      // Store current location before redirecting
+      sessionStorage.setItem('loginRedirect', window.location.pathname);
       navigate('/login');
       if (isOpen) {
         toggleSidebar();
@@ -87,9 +89,6 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
           </NavLink>
 
           <div className="space-y-2">
-            <NavLink to="/" className={navLinkClasses} onClick={handleNavClick}>
-              Home
-            </NavLink>
             <NavLink to="/about" className={navLinkClasses} onClick={handleNavClick}>
               About Me
             </NavLink>

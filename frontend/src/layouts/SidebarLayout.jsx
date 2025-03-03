@@ -21,9 +21,11 @@ export default function SidebarLayout({ children }) {
         <Sidebar isOpen={true} toggleSidebar={toggleSidebar} />
       </div>
       
-      {/* Main Content */}
-      <main className={`w-full md:ml-32 flex-1 p-4 md:p-8 overflow-hidden`}>
-        {children}
+      {/* Main Content - now centered both horizontally and vertically */}
+      <main className="w-full md:ml-32 flex-1 p-4 md:p-8 overflow-hidden flex justify-center items-center">
+        <div className="w-full max-w-4xl">
+          {children}
+        </div>
       </main>
       
       {/* Mobile Menu Button */}
