@@ -12,9 +12,9 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const loadUser = async () => {
       try {
-        console.log('Checking for current user...');
+        // console.log('Checking for current user...');
         const currentUser = await authService.getCurrentUser();
-        console.log('Current user:', currentUser);
+        // console.log('Current user:', currentUser);
         setUser(currentUser);
       } catch (error) {
         console.error('Error loading user:', error);

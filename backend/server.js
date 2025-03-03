@@ -228,6 +228,11 @@ app.post('/api/users', async (req, res) => {
   try {
     const { id, email } = req.body;
     
+    // Make sure we have a valid ID
+    if (!id) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+    
     // Check if user exists
     const userResult = await db.query(
       'SELECT * FROM users WHERE id = $1',
@@ -472,6 +477,36 @@ app.get('/api/auth/user', async (req, res) => {
 // Protected routes example
 app.get('/api/protected-route', authenticate, (req, res) => {
   res.json({ message: 'This is a protected route', user: req.user });
+});
+
+// Clear all master list items
+app.delete('/api/users/:userId/master-list/clear', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // First get the master list id
+    const masterListResult = await db.query(
+      'SELECT id FROM master_lists WHERE user_id = $1',
+      [userId]
+    );
+    
+    if (masterListResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Master list not found' });
+    }
+    
+    const masterListId = masterListResult.rows[0].id;
+    
+    // Delete all items
+    await db.query(
+      'DELETE FROM master_list_items WHERE master_list_id = $1',
+      [masterListId]
+    );
+    
+    res.json({ message: 'Master list cleared successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // Start server

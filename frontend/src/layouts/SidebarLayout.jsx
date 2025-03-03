@@ -1,9 +1,12 @@
 import PropTypes from 'prop-types';
 import Sidebar from "../components/Sidebar";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocation } from 'react-router-dom';
 
 export default function SidebarLayout({ children }) {
   const [isOpen, setIsOpen] = useState(false);
+  const location = useLocation();
+  const isGroceryPage = location.pathname === '/grocery';
 
   const toggleSidebar = () => {
     setIsOpen(!isOpen);
@@ -21,9 +24,9 @@ export default function SidebarLayout({ children }) {
         <Sidebar isOpen={true} toggleSidebar={toggleSidebar} />
       </div>
       
-      {/* Main Content - now centered both horizontally and vertically */}
-      <main className="w-full md:ml-32 flex-1 p-4 md:p-8 overflow-hidden flex justify-center items-center">
-        <div className="w-full max-w-4xl">
+      {/* Main Content - different layout for grocery page */}
+      <main className={`w-full md:ml-32 flex-1 p-4 md:p-8 overflow-hidden ${isGroceryPage ? 'flex flex-col items-start' : 'flex justify-center items-center'}`}>
+        <div className={`${isGroceryPage ? 'w-full h-full' : 'w-full max-w-4xl'}`}>
           {children}
         </div>
       </main>

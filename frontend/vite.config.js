@@ -3,5 +3,9 @@ import react from "@vitejs/plugin-react";
 import UnoCSS from "unocss/vite";
 
 export default defineConfig({
-  plugins: [react(), UnoCSS()]
+  plugins: [react(), UnoCSS()],
+  publicDir: 'public',
+  build: {
+    assetsDir: 'assets'
+  }
 });

@@ -6,9 +6,9 @@ async function initializeDatabase() {
     // Create users table
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
+        id TEXT PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
+        password TEXT,
         name TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );

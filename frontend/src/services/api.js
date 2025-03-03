@@ -120,4 +120,31 @@ export const deleteMasterListItem = async (itemId) => {
   });
   if (!response.ok) throw new Error('Failed to delete master list item');
   return response.json();
+};
+
+// Add this function to your api.js file
+export const clearMasterList = async (userId) => {
+  try {
+    const response = await fetch(`${API_URL}/users/${userId}/master-list/clear`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getAuthToken()}`
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to clear master list');
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('API error:', error);
+    throw error;
+  }
+};
+
+// Ensure we have a proper way to get the auth token
+const getAuthToken = () => {
+  return localStorage.getItem('token') || '';
 }; 
