@@ -1,25 +1,51 @@
 import { useState, useEffect } from "react";
 import App from "./App.jsx";
-import { isDarkMode } from './utils/isDarkMode';
-import { AuthProvider } from './context/AuthProvider';
+import { ThemeProvider } from './context/ThemeContext';
 
 export default function Root() {
   const [mode, setMode] = useState(() => {
     return localStorage.getItem("mode") || "auto";
   });
+  
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
-    async function updateDarkMode() {
-      if (mode === 'auto') {
-        const darkMode = await isDarkMode(); 
-        setIsDark(darkMode);
-      } else {
-        setIsDark(mode === 'dark');
+    if (mode === 'auto') {
+      const prefersDark = window.matchMedia && 
+        window.matchMedia('(prefers-color-scheme: dark)').matches;
+      setIsDark(prefersDark);
+      
+      document.documentElement.classList.remove('dark', 'light');
+      document.documentElement.classList.add(prefersDark ? 'dark' : 'light');
+    } else {
+      setIsDark(mode === 'dark');
+      document.documentElement.classList.remove('dark', 'light');
+      document.documentElement.classList.add(mode);
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    localStorage.setItem("mode", mode);
+    
+    if (mode === 'auto') {
+      const prefersDark = window.matchMedia && 
+        window.matchMedia('(prefers-color-scheme: dark)').matches;
+      setIsDark(prefersDark);
+      
+      const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleChange = (e) => {
+        if (mode === 'auto') {
+          setIsDark(e.matches);
+          document.documentElement.classList.remove('dark', 'light');
+          document.documentElement.classList.add(e.matches ? 'dark' : 'light');
+        }
+      };
+      
+      if (darkModeMediaQuery.addEventListener) {
+        darkModeMediaQuery.addEventListener('change', handleChange);
+        return () => darkModeMediaQuery.removeEventListener('change', handleChange);
       }
     }
-
-    updateDarkMode();
   }, [mode]);
 
   const cycleMode = () => {
@@ -30,17 +56,13 @@ export default function Root() {
         case 'dark': newMode = 'light'; break;
         default: newMode = 'auto';
       }
-
-      localStorage.setItem("mode", newMode);
       return newMode;
     });
   };
 
   return (
-    <div className={isDark ? 'dark' : ''}>
-      <AuthProvider>
-        <App mode={mode} cycleMode={cycleMode} isDark={isDark} />
-      </AuthProvider>
-    </div>
+    <ThemeProvider>
+      <App mode={mode} cycleMode={cycleMode} isDark={isDark} />
+    </ThemeProvider>
   );
 }

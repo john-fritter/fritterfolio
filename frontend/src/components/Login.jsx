@@ -28,7 +28,7 @@ export default function Login() {
         // Register with email and password (no name required)
         await register(email, password);
       } else {
-        await login(email, password);
+        await handleLogin(e);
       }
       
       // Redirect to the homepage or intended destination
@@ -37,6 +37,24 @@ export default function Login() {
       navigate(redirectPath);
     } catch (error) {
       setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    
+    try {
+      console.log("Attempting login with email:", email);
+      const result = await login(email, password);
+      console.log("Login successful, token received:", !!result.token);
+      navigate(sessionStorage.getItem('loginRedirect') || '/');
+    } catch (err) {
+      console.error("Login error:", err);
+      setError('Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }

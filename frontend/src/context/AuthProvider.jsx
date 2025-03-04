@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import * as authService from '../services/auth';
 import { AuthContext } from './AuthContext';
+import * as api from '../services/api';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -10,20 +11,46 @@ export function AuthProvider({ children }) {
 
   // Check if user is already logged in
   useEffect(() => {
-    const loadUser = async () => {
+    const checkCurrentUser = async () => {
+      console.log("Checking for current user...");
+      const token = authService.getAuthToken();
+      
+      if (!token) {
+        console.log("No token found, user is not logged in");
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+      
       try {
-        // console.log('Checking for current user...');
-        const currentUser = await authService.getCurrentUser();
-        // console.log('Current user:', currentUser);
-        setUser(currentUser);
+        console.log("Token found, verifying with server...");
+        const response = await fetch(`${api.API_URL}/auth/user`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (!response.ok) {
+          console.log("Server rejected token, logging out");
+          authService.clearAuthToken();
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+        
+        const data = await response.json();
+        console.log("Current user:", data.user);
+        setUser(data.user);
       } catch (error) {
-        console.error('Error loading user:', error);
+        console.error("Error verifying auth token:", error);
+        authService.clearAuthToken();
+        setUser(null);
       } finally {
         setLoading(false);
       }
     };
-
-    loadUser();
+    
+    checkCurrentUser();
   }, []);
 
   // Register a new user (email/password only)
@@ -42,14 +69,29 @@ export function AuthProvider({ children }) {
 
   // Login user
   const login = async (email, password) => {
-    setError(null);
     try {
-      const user = await authService.login(email, password);
-      console.log('User logged in:', user);
-      setUser(user);
-      return user;
+      const response = await fetch(`${api.API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Login API error:", errorData);
+        throw new Error(errorData.error || 'Login failed');
+      }
+      
+      const data = await response.json();
+      console.log("Login successful, setting token");
+      
+      // Use enhanced token storage
+      authService.setAuthToken(data.token);
+      
+      setUser(data.user);
+      return data;
     } catch (error) {
-      setError(error.message);
+      console.error("Login function error:", error);
       throw error;
     }
   };

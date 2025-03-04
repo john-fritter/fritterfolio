@@ -11,56 +11,37 @@ const VIEWS = {
 };
 
 export default function Grocery() {
-  const { user, loading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [groceryLists, setGroceryLists] = useState([]);
   const [currentList, setCurrentList] = useState(null);
   const [masterList, setMasterList] = useState({ items: [] });
-  const [newListName, setNewListName] = useState('Groceries');
+  const [newListName, setNewListName] = useState('');
   const [newItem, setNewItem] = useState('');
-  const [view, setView] = useState(VIEWS.LIST);
+  const [view, setView] = useState(VIEWS.LISTS); // Default to lists view
   const [menuOpen, setMenuOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const touchStartX = useRef(0);
-  const touchEndX = useRef(0);
-  const currentItemRef = useRef(null);
-  const longPressTimer = useRef(null);
-  const longPressThreshold = 500; // ms
+  const [editingList, setEditingList] = useState(null);
   const [selectedItems, setSelectedItems] = useState([]);
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
-  const [targetListId, setTargetListId] = useState(null);
   const [showListSelection, setShowListSelection] = useState(false);
+  // Add loading states
+  const [listsLoading, setListsLoading] = useState(true);
+  const [itemsLoading, setItemsLoading] = useState(true);
+  const [masterLoading, setMasterLoading] = useState(true);
+  const inputRef = useRef(null);
 
-  // Check for mobile screen size
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  useEffect(() => {
-    if (loading) return; // Wait for loading to finish
-
-    if (!user) {
-      // If not logged in, redirect to login
-      sessionStorage.setItem('loginRedirect', window.location.pathname);
-      navigate('/login');
-    }
-  }, [user, loading, navigate]);
-
+  // Move all function declarations before the effects that use them
+  
   // Memoize callback functions to avoid dependency loops
   const createUserIfNeeded = useCallback(async (user) => {
-    if (!user || !user.id) return; // Add check for user.id
+    if (!user || !user.id) return;
     
     try {
       await fetch(`${api.API_URL}/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          id: user.id, // Make sure we're sending a proper ID
+          id: user.id,
           email: user.email 
         })
       });
@@ -69,44 +50,64 @@ export default function Grocery() {
     }
   }, []);
 
+  // Define fetchListItems before fetchGroceryLists since it's used there
   const fetchListItems = useCallback(async (listId) => {
+    if (!listId) return;
+    
     try {
+      setItemsLoading(true);
       const items = await api.getGroceryItems(listId);
-      setCurrentList(prev => ({ ...prev, items }));
+      
+      setCurrentList(prev => ({
+        ...prev,
+        items: items
+      }));
     } catch (error) {
       console.error("Error fetching list items:", error);
+    } finally {
+      setItemsLoading(false);
     }
   }, []);
 
+  // Fetch all grocery lists
   const fetchGroceryLists = useCallback(async () => {
     if (!user) return;
     
     try {
-      const lists = await api.getGroceryLists(user.uid);
-      setGroceryLists(lists);
+      setListsLoading(true);
+      const lists = await api.getGroceryLists();
       
-      if (!currentList && lists.length > 0) {
-        setCurrentList(lists[0]);
-        fetchListItems(lists[0].id);
-      }
+      // Make sure every list has an items array, even if empty
+      const listsWithItems = lists.map(list => ({
+        ...list,
+        items: list.items || [] // Ensure items is always an array
+      }));
       
-      if (lists.length === 0) {
-        setView(VIEWS.LISTS);
+      setGroceryLists(listsWithItems);
+      
+      // If no current list is selected but lists exist, select the first one
+      if (!currentList && listsWithItems.length > 0) {
+        setCurrentList(listsWithItems[0]);
+        fetchListItems(listsWithItems[0].id);
       }
     } catch (error) {
       console.error("Error fetching grocery lists:", error);
+    } finally {
+      setListsLoading(false);
     }
   }, [user, currentList, fetchListItems]);
 
+  // Fetch master list items
   const fetchMasterList = useCallback(async () => {
     if (!user) return;
     
     try {
-      const masterList = await api.getMasterList(user.uid);
+      setMasterLoading(true);
+      const masterListData = await api.getMasterList();
       
       // Deduplicate items by name (case-insensitive)
       const seen = new Set();
-      const deduplicatedItems = masterList.items.filter(item => {
+      const deduplicatedItems = masterListData.items.filter(item => {
         const normalizedName = item.name.toLowerCase().trim();
         if (seen.has(normalizedName)) {
           return false;
@@ -116,42 +117,299 @@ export default function Grocery() {
       });
       
       setMasterList({
-        ...masterList,
+        ...masterListData,
         items: deduplicatedItems
       });
     } catch (error) {
       console.error("Error fetching master list:", error);
+    } finally {
+      setMasterLoading(false);
     }
   }, [user]);
 
-  // Fetch data when component loads
+  // Now that functions are defined, we can use them in useEffect
+  
+  // Generate a default name for new lists
   useEffect(() => {
-    if (user) {
-      createUserIfNeeded(user);
-      fetchGroceryLists();
-      fetchMasterList();
+    if (groceryLists.length > 0) {
+      const existingNames = groceryLists.map(list => list.name);
+      let baseName = 'Groceries';
+      let suffix = 0;
+      let newName = baseName;
+      
+      while (existingNames.includes(newName)) {
+        suffix++;
+        newName = `${baseName}-${suffix}`;
+      }
+      
+      setNewListName(newName);
+    } else {
+      setNewListName('Groceries');
     }
-  }, [user, createUserIfNeeded, fetchGroceryLists, fetchMasterList]);
+  }, [groceryLists]);
 
-  // Create a new grocery list
+  // Focus and select all text when input gets focus
+  const handleInputFocus = (e) => {
+    e.target.select();
+  };
+
+  // Check for mobile screen size
+  useEffect(() => {
+    const handleResize = () => {};
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Initialize and fetch data
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!user) {
+      sessionStorage.setItem('loginRedirect', window.location.pathname);
+      navigate('/login');
+      return;
+    }
+
+    createUserIfNeeded(user);
+    fetchGroceryLists();
+    fetchMasterList();
+  }, [user, authLoading, navigate, createUserIfNeeded, fetchGroceryLists, fetchMasterList]);
+
+  // Create a new list
   const createNewList = async (e) => {
     e.preventDefault();
     if (!newListName.trim() || !user) return;
     
     try {
-      const newList = await api.createGroceryList(newListName, user.uid);
+      const newList = await api.createGroceryList(newListName);
       
       setCurrentList({ ...newList, items: [] });
       setGroceryLists(prev => [newList, ...prev]);
       
-      setNewListName('Groceries');
+      // Generate a new default name for the next list
+      const existingNames = [...groceryLists, newList].map(list => list.name);
+      let baseName = 'Groceries';
+      let suffix = 0;
+      let nextName = baseName;
+      
+      while (existingNames.includes(nextName)) {
+        suffix++;
+        nextName = `${baseName}-${suffix}`;
+      }
+      
+      setNewListName(nextName);
       setView(VIEWS.LIST);
     } catch (error) {
-      console.error("Error creating list:", error);
+      console.error("Error creating new list:", error);
     }
   };
 
-  // Add item to current list and master list
+  // Delete a list
+  const deleteList = async (listId) => {
+    if (!window.confirm('Are you sure you want to delete this list?')) return;
+    
+    try {
+      await api.deleteGroceryList(listId);
+      
+      // Update lists
+      setGroceryLists(prev => prev.filter(list => list.id !== listId));
+      
+      // If deleting current list, switch to another list or lists view
+      if (currentList && currentList.id === listId) {
+        const remainingLists = groceryLists.filter(list => list.id !== listId);
+        if (remainingLists.length > 0) {
+          setCurrentList(remainingLists[0]);
+          fetchListItems(remainingLists[0].id);
+        } else {
+          setCurrentList(null);
+          setView(VIEWS.LISTS);
+        }
+      }
+    } catch (error) {
+      console.error("Error deleting list:", error);
+    }
+  };
+
+  // Edit list name
+  const startEditingList = (list) => {
+    setEditingList(list);
+    setNewListName(list.name);
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.select();
+      }
+    }, 100);
+  };
+
+  const saveListName = async () => {
+    if (!editingList || !newListName.trim()) {
+      setEditingList(null);
+      return;
+    }
+    
+    try {
+      await api.updateGroceryList(editingList.id, { name: newListName });
+      
+      // Update lists
+      setGroceryLists(prev => 
+        prev.map(list => 
+          list.id === editingList.id ? { ...list, name: newListName } : list
+        )
+      );
+      
+      // Update current list if it's the one being edited
+      if (currentList && currentList.id === editingList.id) {
+        setCurrentList(prev => ({ ...prev, name: newListName }));
+      }
+      
+      setEditingList(null);
+    } catch (error) {
+      console.error("Error updating list name:", error);
+    }
+  };
+
+  // Add this function to toggle items as bought/completed
+  const toggleItem = async (index) => {
+    try {
+      const items = view === VIEWS.LIST ? currentList.items : masterList.items;
+      const item = items[index];
+      const newCompletedValue = !item.completed;
+      
+      if (view === VIEWS.LIST) {
+        // Update item in current list
+        await api.updateGroceryItem(item.id, { completed: newCompletedValue });
+        
+        // Update state
+        setCurrentList(prev => ({
+          ...prev,
+          items: prev.items.map((i, idx) => 
+            idx === index ? { ...i, completed: newCompletedValue } : i
+          )
+        }));
+      } else if (view === VIEWS.MASTER) {
+        // Update item in master list
+        await api.updateMasterListItem(item.id, { completed: newCompletedValue });
+        
+        // Update state
+        setMasterList(prev => ({
+          ...prev,
+          items: prev.items.map((i, idx) => 
+            idx === index ? { ...i, completed: newCompletedValue } : i
+          )
+        }));
+      }
+    } catch (error) {
+      console.error("Error toggling item:", error);
+    }
+  };
+
+  // Clear bought/completed items
+  const clearBoughtItems = async () => {
+    if (!window.confirm('Are you sure you want to remove all completed items?')) {
+      return;
+    }
+    
+    try {
+      const items = view === VIEWS.LIST ? currentList.items : masterList.items;
+      const completedItems = items.filter(item => item.completed);
+      
+      // Delete each completed item
+      for (const item of completedItems) {
+        if (view === VIEWS.LIST) {
+          await api.deleteGroceryItem(item.id);
+        } else if (view === VIEWS.MASTER) {
+          await api.deleteMasterListItem(item.id);
+        }
+      }
+      
+      // Update state
+      if (view === VIEWS.LIST) {
+        setCurrentList(prev => ({
+          ...prev,
+          items: prev.items.filter(item => !item.completed)
+        }));
+      } else if (view === VIEWS.MASTER) {
+        setMasterList(prev => ({
+          ...prev,
+          items: prev.items.filter(item => !item.completed)
+        }));
+      }
+    } catch (error) {
+      console.error("Error clearing bought items:", error);
+    }
+  };
+
+  // Function to add selected items to another list
+  const addSelectedItemsToList = async (targetListId) => {
+    if (!targetListId || selectedItems.length === 0) return;
+    
+    try {
+      const itemsToAdd = selectedItems.map(index => masterList.items[index]);
+      
+      // Add each selected item to the target list
+      for (const item of itemsToAdd) {
+        await api.addGroceryItem(targetListId, item.name);
+      }
+      
+      // Update the target list if it's the current list
+      if (currentList && currentList.id === targetListId) {
+        fetchListItems(targetListId);
+      }
+      
+      // Reset selection
+      setSelectedItems([]);
+      setIsMultiSelectMode(false);
+      setShowListSelection(false);
+    } catch (error) {
+      console.error("Error adding items to list:", error);
+    }
+  };
+
+  // Toggle multi-select mode
+  const toggleMultiSelectMode = () => {
+    setIsMultiSelectMode(!isMultiSelectMode);
+    setSelectedItems([]);
+  };
+
+  // Toggle item selection
+  const toggleItemSelection = (index) => {
+    if (selectedItems.includes(index)) {
+      setSelectedItems(selectedItems.filter(i => i !== index));
+    } else {
+      setSelectedItems([...selectedItems, index]);
+    }
+  };
+
+  // Delete an item from the current list
+  const deleteItem = async (itemId, index) => {
+    try {
+      await api.deleteGroceryItem(itemId);
+      
+      setCurrentList(prev => ({
+        ...prev,
+        items: prev.items.filter((_, idx) => idx !== index)
+      }));
+    } catch (error) {
+      console.error("Error deleting item:", error);
+    }
+  };
+
+  // Delete an item from the master list
+  const deleteMasterItem = async (itemId, index) => {
+    try {
+      await api.deleteMasterListItem(itemId);
+      
+      setMasterList(prev => ({
+        ...prev,
+        items: prev.items.filter((_, idx) => idx !== index)
+      }));
+    } catch (error) {
+      console.error("Error deleting master item:", error);
+    }
+  };
+
+  // Add Item function
   const addItem = async (e) => {
     e?.preventDefault();
     if (!newItem.trim()) return;
@@ -174,289 +432,12 @@ export default function Grocery() {
       }
       
       setNewItem('');
-      setEditingItem(null);
     } catch (error) {
       console.error("Error adding item:", error);
     }
   };
 
-  // Toggle item completion status
-  const toggleItem = async (itemIndex) => {
-    try {
-      if (view === VIEWS.LIST) {
-        const item = currentList.items[itemIndex];
-        const updatedItem = await api.updateGroceryItem(item.id, { completed: !item.completed });
-        
-        // Update the item in the current list
-        setCurrentList(prev => {
-          const updatedItems = [...prev.items];
-          updatedItems[itemIndex] = updatedItem;
-          return { ...prev, items: updatedItems };
-        });
-      } else if (view === VIEWS.MASTER) {
-        // We would need a similar endpoint for master list items
-        // For now, let's just update the UI
-        setMasterList(prev => {
-          const updatedItems = [...prev.items];
-          updatedItems[itemIndex].completed = !updatedItems[itemIndex].completed;
-          return { ...prev, items: updatedItems };
-        });
-      }
-    } catch (error) {
-      console.error("Error toggling item:", error);
-    }
-  };
-
-  // Delete item
-  const deleteItem = async (itemIndex) => {
-    try {
-      if (view === VIEWS.LIST) {
-        const item = currentList.items[itemIndex];
-        await api.deleteGroceryItem(item.id);
-        
-        // Update the current list
-        setCurrentList(prev => {
-          const updatedItems = prev.items.filter((_, index) => index !== itemIndex);
-          return { ...prev, items: updatedItems };
-        });
-      } else if (view === VIEWS.MASTER) {
-        // We would need a similar endpoint for master list items
-        // For now, let's just update the UI
-        setMasterList(prev => {
-          const updatedItems = prev.items.filter((_, index) => index !== itemIndex);
-          return { ...prev, items: updatedItems };
-        });
-      }
-    } catch (error) {
-      console.error("Error deleting item:", error);
-    }
-  };
-
-  // Clear bought items
-  const clearBoughtItems = async () => {
-    try {
-      if (view === VIEWS.LIST && currentList) {
-        // This would require a new backend endpoint - for now, let's handle it client-side
-        const itemsToKeep = currentList.items.filter(item => !item.completed);
-        
-        // Delete each completed item
-        const deletePromises = currentList.items
-          .filter(item => item.completed)
-          .map(item => api.deleteGroceryItem(item.id));
-          
-        await Promise.all(deletePromises);
-        
-        // Update the current list
-        setCurrentList(prev => ({ ...prev, items: itemsToKeep }));
-      } else if (view === VIEWS.MASTER) {
-        // Similar for master list
-        const itemsToKeep = masterList.items.filter(item => !item.completed);
-        setMasterList(prev => ({ ...prev, items: itemsToKeep }));
-      }
-      setMenuOpen(false);
-    } catch (error) {
-      console.error("Error clearing bought items:", error);
-    }
-  };
-
-  // Delete current list
-  const deleteCurrentList = async () => {
-    try {
-      if (currentList) {
-        // We would need to add this endpoint
-        await fetch(`${api.API_URL}/grocery-lists/${currentList.id}`, {
-          method: 'DELETE'
-        });
-        
-        // Update lists and reset current list
-        setGroceryLists(prev => prev.filter(list => list.id !== currentList.id));
-        setCurrentList(null);
-        setView(VIEWS.LISTS);
-      }
-      setMenuOpen(false);
-    } catch (error) {
-      console.error("Error deleting list:", error);
-    }
-  };
-
-  // Select a list to view
-  const selectList = (list) => {
-    setCurrentList(list);
-    fetchListItems(list.id);
-    setView(VIEWS.LIST); // This explicitly changes the view
-  };
-
-  // Add item from master list to current list
-  const addFromMasterToCurrentList = async (item) => {
-    if (!currentList) return;
-    
-    try {
-      const newItem = await api.addGroceryItem(currentList.id, item.name);
-      
-      // Update current list
-      setCurrentList(prev => ({
-        ...prev,
-        items: [...prev.items, newItem]
-      }));
-    } catch (error) {
-      console.error("Error adding from master list:", error);
-    }
-  };
-
-  // Handle swipe start
-  const handleTouchStart = (e, itemIndex) => {
-    touchStartX.current = e.touches[0].clientX;
-    currentItemRef.current = itemIndex;
-    
-    // Setup long press timer
-    longPressTimer.current = setTimeout(() => {
-      if (isMobile) {
-        const item = view === VIEWS.LIST ? currentList.items[itemIndex] : masterList.items[itemIndex];
-        setEditingItem({ index: itemIndex, name: item.name });
-        setNewItem(item.name);
-      }
-      longPressTimer.current = null;
-    }, longPressThreshold);
-  };
-
-  // Handle swipe move
-  const handleTouchMove = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  };
-
-  // Handle swipe end
-  const handleTouchEnd = (e) => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-    
-    touchEndX.current = e.changedTouches[0].clientX;
-    const diff = touchEndX.current - touchStartX.current;
-    
-    if (diff > 50) { // Swipe right - mark as completed
-      toggleItem(currentItemRef.current);
-    } else if (diff < -50) { // Swipe left - delete
-      deleteItem(currentItemRef.current);
-    }
-    
-    currentItemRef.current = null;
-  };
-
-  // Handle item click (for desktop)
-  const handleItemClick = (itemIndex) => {
-    if (!isMobile) {
-      const item = view === VIEWS.LIST ? currentList.items[itemIndex] : masterList.items[itemIndex];
-      setEditingItem({ index: itemIndex, name: item.name });
-      setNewItem(item.name);
-    }
-  };
-
-  // Update item
-  const updateItem = async () => {
-    if (!editingItem || !newItem.trim()) return;
-    
-    try {
-      if (view === VIEWS.LIST) {
-        const item = currentList.items[editingItem.index];
-        const updatedItem = await api.updateGroceryItem(item.id, { name: newItem });
-        
-        // Update the item in the current list
-        setCurrentList(prev => {
-          const updatedItems = [...prev.items];
-          updatedItems[editingItem.index] = updatedItem;
-          return { ...prev, items: updatedItems };
-        });
-        
-        // Also update in master list if it exists there
-        const masterItemIndex = masterList.items.findIndex(
-          item => item.name.toLowerCase() === editingItem.name.toLowerCase()
-        );
-        
-        if (masterItemIndex !== -1) {
-          const masterItem = masterList.items[masterItemIndex];
-          const updatedMasterItem = await api.updateMasterListItem(masterItem.id, { name: newItem });
-          
-          setMasterList(prev => {
-            const updatedItems = [...prev.items];
-            updatedItems[masterItemIndex] = updatedMasterItem;
-            return { ...prev, items: updatedItems };
-          });
-        }
-      } else if (view === VIEWS.MASTER) {
-        const item = masterList.items[editingItem.index];
-        const updatedItem = await api.updateMasterListItem(item.id, { name: newItem });
-        
-        setMasterList(prev => {
-          const updatedItems = [...prev.items];
-          updatedItems[editingItem.index] = updatedItem;
-          return { ...prev, items: updatedItems };
-        });
-      }
-      
-      setEditingItem(null);
-      setNewItem('');
-    } catch (error) {
-      console.error("Error updating item:", error);
-    }
-  };
-
-  // Add this function to clear input after adding item
-  const handleAddItem = async (e) => {
-    e?.preventDefault();
-    if (!newItem.trim()) return;
-    
-    await addItem(e);
-    // Clear the input field immediately after adding
-    setNewItem('');
-  };
-
-  // Add these new functions
-  const toggleItemSelection = (index) => {
-    if (selectedItems.includes(index)) {
-      setSelectedItems(selectedItems.filter(i => i !== index));
-    } else {
-      setSelectedItems([...selectedItems, index]);
-    }
-  };
-  
-  const toggleMultiSelectMode = () => {
-    setIsMultiSelectMode(!isMultiSelectMode);
-    setSelectedItems([]);
-  };
-  
-  const addSelectedItemsToList = (targetListId) => {
-    if (!targetListId || selectedItems.length === 0) return;
-    
-    const itemsToAdd = selectedItems.map(index => masterList.items[index]);
-    
-    // Add each selected item to the target list
-    const addPromises = itemsToAdd.map(item => 
-      api.addGroceryItem(targetListId, item.name)
-    );
-    
-    Promise.all(addPromises)
-      .then(() => {
-        // Update the target list if it's the current list
-        if (currentList && currentList.id === targetListId) {
-          fetchListItems(targetListId);
-        }
-        
-        // Reset selection
-        setSelectedItems([]);
-        setIsMultiSelectMode(false);
-        setShowListSelection(false);
-        setTargetListId(null);
-      })
-      .catch(error => {
-        console.error("Error adding items to list:", error);
-      });
-  };
-  
-  // Enhanced function to add to master list with deduplication
+  // Add to master list with deduplication
   const addToMasterList = async (itemName) => {
     if (!user || !itemName.trim()) return;
     
@@ -468,7 +449,8 @@ export default function Grocery() {
       );
       
       if (!existingItem) {
-        const newMasterItem = await api.addMasterListItem(user.uid, itemName);
+        console.log("Adding to master list:", itemName);
+        const newMasterItem = await api.addMasterListItem(itemName);
         
         setMasterList(prev => ({
           ...prev,
@@ -483,79 +465,43 @@ export default function Grocery() {
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-full"><div className="loading">Loading...</div></div>;
-  if (!user) return <div className="p-6">Please sign in to access the grocery list</div>;
-
-  // Render lists view for the "All Lists" option
-  const renderListsView = () => {
-    if (view !== VIEWS.LISTS) return null;
-    
-    return (
-      <div className="py-4">
-        <h2 className="text-xl font-semibold text-primary-dm mb-4">My Grocery Lists</h2>
-        
-        {groceryLists && groceryLists.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-secondary-dm mb-4">You don't have any grocery lists yet.</p>
-            <form onSubmit={createNewList} className="max-w-md mx-auto">
-              <div className="flex flex-col gap-4">
-                <input
-                  type="text"
-                  placeholder="New List Name"
-                  value={newListName}
-                  onChange={(e) => setNewListName(e.target.value)}
-                  className="p-3 border rounded text-lg w-full"
-                />
-                <button 
-                  type="submit"
-                  className="bg-primary text-white px-4 py-3 rounded text-lg font-medium"
-                >
-                  Create First List
-                </button>
-              </div>
-            </form>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {groceryLists && groceryLists.map(list => (
-              <div 
-                key={list.id}
-                className="p-4 border rounded-lg hover:shadow-md cursor-pointer"
-                onClick={() => selectList(list)}
-              >
-                <h3 className="text-lg font-medium text-primary-dm">{list.name}</h3>
-                <p className="text-sm text-secondary-dm mt-1">
-                  {list.items ? `${list.items.length} items • ${list.items.filter(i => i.completed).length} completed` : 'Loading items...'}
-                </p>
-              </div>
-            ))}
-            
-            <div className="p-4 border rounded-lg border-dashed">
-              <form onSubmit={createNewList} className="space-y-3">
-                <input
-                  type="text"
-                  placeholder="New List Name"
-                  value={newListName}
-                  onChange={(e) => setNewListName(e.target.value)}
-                  className="p-2 border rounded w-full"
-                />
-                <button 
-                  type="submit"
-                  className="bg-primary text-white px-3 py-2 rounded text-sm font-medium"
-                >
-                  Create List
-                </button>
-              </form>
-            </div>
-          </div>
-        )}
-      </div>
-    );
+  // Select a list to view
+  const selectList = (list) => {
+    setCurrentList(list);
+    fetchListItems(list.id);
+    setView(VIEWS.LIST); // This explicitly changes the view
   };
 
-  // Render Grocery Lists view
+  // Add this function to clear the master list
+  const clearMasterList = async () => {
+    if (!user || !window.confirm('Are you sure you want to clear all items from the master list?')) {
+      return;
+    }
+    
+    try {
+      // Call the API to clear the master list
+      await api.clearMasterList(user.id);
+      
+      // Update the state to reflect the cleared list
+      setMasterList(prev => ({ ...prev, items: [] }));
+      
+      console.log("Master list cleared successfully");
+    } catch (error) {
+      console.error("Error clearing master list:", error);
+    }
+  };
+
+  // Make the spinner more visible with a cleaner style
+  const LoadingSpinner = () => (
+    <div className="flex justify-center items-center py-10">
+      <div className="animate-spin rounded-full h-14 w-14 border-4 border-gray-200 dark:border-gray-700 border-t-4 border-t-primary dark:border-t-dark-primary"></div>
+    </div>
+  );
+
+  // Render function for the unified layout
   return (
-    <div className="p-4 md:p-6 max-w-full w-full h-full relative">
+    <div className="w-full h-full bg-background dark:bg-dark-background p-4">
+      {/* Header with title and menu */}
       <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
         <h1 className="text-2xl md:text-3xl font-bold text-primary-dm">
           {view === VIEWS.LIST && currentList ? currentList.name : 
@@ -573,21 +519,20 @@ export default function Grocery() {
             </svg>
           </button>
           
-          {/* Dropdown Menu - updated with new options */}
+          {/* Dropdown Menu - unified for all views */}
           {menuOpen && (
             <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white dark:bg-dark-background ring-1 ring-black ring-opacity-5 z-10">
               <div className="py-1">
+                {/* Always show these navigation options */}
                 <button 
-                  onClick={() => { setView(VIEWS.LIST); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                  onClick={() => { 
+                    if (currentList) setView(VIEWS.LIST); 
+                    setMenuOpen(false); 
+                  }}
+                  className={`w-full text-left px-4 py-2 text-sm ${!currentList ? 'text-gray-400' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                  disabled={!currentList}
                 >
                   Current List
-                </button>
-                <button 
-                  onClick={() => { setView(VIEWS.MASTER); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  Master List
                 </button>
                 <button 
                   onClick={() => { setView(VIEWS.LISTS); setMenuOpen(false); }}
@@ -595,7 +540,16 @@ export default function Grocery() {
                 >
                   All Lists
                 </button>
+                <button 
+                  onClick={() => { setView(VIEWS.MASTER); setMenuOpen(false); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                  Master List
+                </button>
                 
+                <div className="border-t my-1"></div>
+                
+                {/* View-specific options */}
                 {view === VIEWS.MASTER && (
                   <>
                     <button 
@@ -622,17 +576,7 @@ export default function Grocery() {
                     
                     <button 
                       onClick={() => {
-                        const confirmClear = window.confirm("Are you sure you want to clear all items from the master list?");
-                        if (confirmClear) {
-                          // Implement this API endpoint to clear master list
-                          api.clearMasterList(user.uid)
-                            .then(() => {
-                              setMasterList(prev => ({ ...prev, items: [] }));
-                            })
-                            .catch(error => {
-                              console.error("Error clearing master list:", error);
-                            });
-                        }
+                        clearMasterList();
                         setMenuOpen(false);
                       }}
                       className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -642,13 +586,18 @@ export default function Grocery() {
                   </>
                 )}
                 
-                {view === VIEWS.LIST && (
-                  <button 
-                    onClick={deleteCurrentList}
-                    className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  >
-                    Delete This List
-                  </button>
+                {view === VIEWS.LIST && currentList && (
+                  <>
+                    <button 
+                      onClick={() => {
+                        clearBoughtItems();
+                        setMenuOpen(false);
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      Clear Bought Items
+                    </button>
+                   </>
                 )}
               </div>
             </div>
@@ -656,158 +605,236 @@ export default function Grocery() {
         </div>
       </div>
       
-      {/* Lists View */}
-      {view === VIEWS.LISTS ? (
-        renderListsView()
-      ) : (
-        <>
-          {/* Items List */}
-          <div className="mb-20">
-            <ul className="list-none p-0 divide-y divide-gray-200 dark:divide-gray-700">
-              {(view === VIEWS.LIST ? (currentList?.items ?? []) : masterList.items).length === 0 ? (
-                <li className="py-3 px-1 text-center text-secondary-dm">No items in this list yet</li>
-              ) : (
-                (view === VIEWS.LIST ? (currentList?.items ?? []) : masterList.items).map((item, index) => (
-                  <li 
-                    key={index}
-                    className="py-3 px-1 relative transition-colors"
-                    onTouchStart={(e) => handleTouchStart(e, index)}
-                    onTouchMove={handleTouchMove}
-                    onTouchEnd={handleTouchEnd}
-                    onClick={() => handleItemClick(index)}
+      {/* List of grocery lists view */}
+      {view === VIEWS.LISTS && (
+        <div className="divide-y divide-gray-200 dark:divide-gray-700">
+          {/* Existing lists with loading spinner */}
+          {listsLoading ? (
+            <LoadingSpinner />
+          ) : groceryLists.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-secondary-dm mb-4">You don&apos;t have any grocery lists yet.</p>
+            </div>
+          ) : (
+            groceryLists.map(list => (
+              <div 
+                key={list.id}
+                className="py-4 flex items-center justify-between group"
+                onClick={() => selectList(list)}
+              >
+                <div className="flex-1">
+                  <h2 className="text-xl font-medium text-primary-dm">{list.name}</h2>
+                  <p className="text-sm text-secondary-dm mt-1">
+                    {Array.isArray(list.items) 
+                      ? `${list.items.length} items • ${list.items.filter(i => i.completed).length} completed` 
+                      : "0 items"
+                    }
+                  </p>
+                </div>
+                
+                <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      startEditingList(list);
+                    }}
+                    className="text-primary p-1 rounded hover:bg-primary/10"
                   >
-                    <div className="flex items-center space-x-3">
-                      {/* Checkbox for multi-select or completion */}
-                      {!isMobile && (
-                        view === VIEWS.MASTER && isMultiSelectMode ? (
-                          <input
-                            type="checkbox"
-                            checked={selectedItems.includes(index)}
-                            onChange={() => toggleItemSelection(index)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="h-5 w-5"
-                          />
-                        ) : (
-                          <input
-                            type="checkbox"
-                            checked={item.completed}
-                            onChange={() => toggleItem(index)}
-                            className="h-5 w-5"
-                          />
-                        )
-                      )}
-                      
-                      {/* Item name */}
-                      <span 
-                        className={`flex-1 ${item.completed ? 'line-through text-gray-400' : 'text-secondary-dm'}`}
-                      >
-                        {item.name}
-                      </span>
-                      
-                      {/* Action buttons */}
-                      <div className="flex space-x-2">
-                        {/* Add from master to current list button */}
-                        {view === VIEWS.MASTER && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              addFromMasterToCurrentList(item);
-                            }}
-                            className="text-primary p-1 rounded hover:bg-primary/10"
-                            title="Add to current list"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                          </button>
-                        )}
-                        
-                        {/* Delete button - desktop */}
-                        {!isMobile && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteItem(index);
-                            }}
-                            className="text-red-500 p-1 rounded hover:bg-red-50"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Mobile swipe instruction - shown only initially */}
-                    {isMobile && index === 0 && groceryLists.length === 1 && (
-                      <div className="text-xs text-secondary-dm mt-1">
-                        Swipe right to mark complete, left to delete, long press to edit
-                      </div>
-                    )}
-                  </li>
-                ))
-              )}
-              
-              {/* Inline Add Item Form */}
-              {!editingItem && (view === VIEWS.LIST || view === VIEWS.MASTER) && (
-                <li className="py-3 px-1 relative">
-                  <form onSubmit={handleAddItem} className="flex items-center space-x-3">
-                    {!isMobile && <div className="h-5 w-5"></div>} {/* Spacer to align with checkboxes */}
-                    
-                    <input
-                      type="text"
-                      placeholder="Add new item..."
-                      value={newItem}
-                      onChange={(e) => setNewItem(e.target.value)}
-                      className="flex-1 p-1 bg-transparent border-b border-gray-200 dark:border-gray-700 focus:outline-none focus:border-primary"
-                    />
-                    
-                    <button 
-                      type="submit"
-                      className="text-green-500 p-1 rounded hover:bg-green-50"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                    </button>
-                  </form>
-                </li>
-              )}
-            </ul>
-          </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteList(list.id);
+                    }}
+                    className="text-red-500 p-1 rounded hover:bg-red-50"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
           
-          {/* Item editing form */}
-          {editingItem && (
-            <div className="fixed bottom-0 left-0 right-0 p-4 bg-white dark:bg-dark-background shadow-lg border-t">
-              <form onSubmit={(e) => { e.preventDefault(); updateItem(); }} className="flex gap-2">
-                <input
-                  type="text"
-                  value={newItem}
-                  onChange={(e) => setNewItem(e.target.value)}
-                  className="flex-1 p-2 border rounded"
-                  autoFocus
-                />
-                <button 
-                  type="submit"
-                  className="bg-primary text-white px-4 py-2 rounded"
+          {/* Add new list form - styled like a list item */}
+          <div className="py-4">
+            <form onSubmit={createNewList} className="flex items-center space-x-3">
+              <input
+                ref={inputRef}
+                type="text"
+                placeholder="New list name..."
+                value={newListName}
+                onChange={(e) => setNewListName(e.target.value)}
+                onFocus={handleInputFocus}
+                className="flex-1 p-2 bg-transparent border-b border-gray-200 dark:border-gray-700 focus:outline-none focus:border-primary"
+              />
+              
+              <button 
+                type="submit"
+                className="text-green-500 p-1 rounded hover:bg-green-50"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+      
+      {/* List view or Master list view - maintained existing code for these views */}
+      {(view === VIEWS.LIST || view === VIEWS.MASTER) && (
+        <div className="divide-y divide-gray-200 dark:divide-gray-700">
+          {/* Items list */}
+          {itemsLoading ? (
+            <LoadingSpinner />
+          ) : view === VIEWS.LIST && currentList ? (
+            currentList.items && currentList.items.length > 0 ? (
+              currentList.items.map((item, index) => (
+                <div 
+                  key={index}
+                  className="py-3 flex items-center space-x-3"
                 >
-                  Update
-                </button>
-                <button 
+                  <input
+                    type="checkbox"
+                    checked={item.completed}
+                    onChange={() => toggleItem(index)}
+                    className="h-5 w-5"
+                  />
+                  
+                  <span 
+                    className={`flex-1 ${item.completed ? 'line-through text-gray-400' : 'text-secondary-dm'}`}
+                  >
+                    {item.name}
+                  </span>
+                  
+                  <button
+                    onClick={() => deleteItem(item.id, index)}
+                    className="text-red-500 p-1 rounded hover:bg-red-50"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="py-4 text-center text-secondary-dm">
+                No items in this list yet. Add your first item below.
+              </div>
+            )
+          ) : view === VIEWS.MASTER && (
+            masterList.items && masterList.items.length > 0 ? (
+              masterList.items.map((item, index) => (
+                <div 
+                  key={index}
+                  className="py-3 flex items-center space-x-3"
+                >
+                  {/* Checkbox for multi-select or completion */}
+                  {isMultiSelectMode ? (
+                    <input
+                      type="checkbox"
+                      checked={selectedItems.includes(index)}
+                      onChange={() => toggleItemSelection(index)}
+                      className="h-5 w-5"
+                    />
+                  ) : (
+                    <input
+                      type="checkbox"
+                      checked={item.completed}
+                      onChange={() => toggleItem(index)}
+                      className="h-5 w-5"
+                    />
+                  )}
+                  
+                  <span 
+                    className={`flex-1 ${item.completed && !isMultiSelectMode ? 'line-through text-gray-400' : 'text-secondary-dm'}`}
+                  >
+                    {item.name}
+                  </span>
+                  
+                  <button
+                    onClick={() => deleteMasterItem(item.id, index)}
+                    className="text-red-500 p-1 rounded hover:bg-red-50"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="py-4 text-center text-secondary-dm">
+                Your master list is empty. Items you add to any list will appear here.
+              </div>
+            )
+          )}
+          
+          {/* Add item form */}
+          <div className="py-3">
+            <form onSubmit={addItem} className="flex items-center space-x-3">
+              <input
+                type="text"
+                placeholder="Add new item..."
+                value={newItem}
+                onChange={(e) => setNewItem(e.target.value)}
+                className="flex-1 p-2 bg-transparent border-b border-gray-200 dark:border-gray-700 focus:outline-none focus:border-primary"
+              />
+              
+              <button 
+                type="submit"
+                className="text-green-500 p-1 rounded hover:bg-green-50"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+      
+      {/* List editing modal */}
+      {editingList && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-dark-background rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
+            <h2 className="text-lg font-medium text-secondary-dm mb-4">Rename List</h2>
+            
+            <form onSubmit={(e) => { e.preventDefault(); saveListName(); }}>
+              <input
+                ref={inputRef}
+                type="text"
+                value={newListName}
+                onChange={(e) => setNewListName(e.target.value)}
+                className="w-full p-2 border rounded mb-4"
+                autoFocus
+              />
+              
+              <div className="flex justify-end space-x-3">
+                <button
                   type="button"
-                  onClick={() => { setEditingItem(null); setNewItem(''); }}
-                  className="px-4 py-2 border rounded"
+                  className="px-4 py-2 border rounded text-secondary-dm hover:bg-gray-50 dark:hover:bg-gray-800"
+                  onClick={() => setEditingList(null)}
                 >
                   Cancel
                 </button>
-              </form>
-            </div>
-          )}
-        </>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-primary text-white rounded hover:bg-primary-dark"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
       
-      {/* Add this List Selection Modal */}
+      {/* List selection modal */}
       {showListSelection && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-dark-background rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
@@ -825,7 +852,7 @@ export default function Grocery() {
                   >
                     <span className="text-primary-dm font-medium">{list.name}</span>
                     <span className="text-sm text-secondary-dm block mt-1">
-                      {list.items.length} items
+                      {list.items ? `${list.items.length} items` : 'Loading items...'}
                     </span>
                   </button>
                 ))

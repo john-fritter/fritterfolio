@@ -7,5 +7,15 @@ export default defineConfig({
   publicDir: 'public',
   build: {
     assetsDir: 'assets'
+  },
+  server: {
+    host: '0.0.0.0',
+    cors: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
+      }
+    }
   }
 });

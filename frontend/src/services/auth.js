@@ -95,8 +95,29 @@ export const getCurrentUser = async () => {
   }
 };
 
+// Enhance token storage
+export const setAuthToken = (token) => {
+  console.log("Setting auth token in localStorage");
+  localStorage.setItem('token', token);
+  // Also store in sessionStorage as a backup
+  sessionStorage.setItem('token', token);
+  return token;
+};
+
+export const getAuthToken = () => {
+  // Try localStorage first, then sessionStorage as backup
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+  return token;
+};
+
+export const clearAuthToken = () => {
+  console.log("Clearing auth token");
+  localStorage.removeItem('token');
+  sessionStorage.removeItem('token');
+};
+
 // Get auth header
 export const getAuthHeader = () => {
-  const token = localStorage.getItem('token');
+  const token = getAuthToken();
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 }; 

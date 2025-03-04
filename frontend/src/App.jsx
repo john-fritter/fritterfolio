@@ -9,6 +9,8 @@ import Login from "./components/Login";
 import PropTypes from 'prop-types';
 import { AuthProvider } from './context/AuthProvider';
 import ProtectedRoute from './components/ProtectedRoute';
+import NetworkTest from "./pages/NetworkTest";
+import AuthDebug from "./pages/AuthDebug";
 
 export default function App({ mode, cycleMode, isDark }) {
   return (
@@ -28,6 +30,8 @@ export default function App({ mode, cycleMode, isDark }) {
               } 
             />
             <Route path="/login" element={<SidebarLayout><Login /></SidebarLayout>} />
+            <Route path="/network-test" element={<NetworkTest />} />
+            <Route path="/auth-debug" element={<AuthDebug />} />
           </Routes>
         </Router>
       </AuthProvider>

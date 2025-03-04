@@ -13,32 +13,19 @@ export default function SidebarLayout({ children }) {
   };
 
   return (
-    <div className="fixed inset-0 flex app-bg transition-colors duration-200">
-      {/* Mobile Sidebar */}
-      <div className="md:hidden">
-        <Sidebar isOpen={isOpen} toggleSidebar={toggleSidebar} />
-      </div>
+    <div className="absolute inset-0 flex flex-row app-bg overflow-x-hidden">
+      <Sidebar isOpen={isOpen} toggleSidebar={toggleSidebar} />
       
-      {/* Desktop Sidebar */}
-      <div className="hidden md:block">
-        <Sidebar isOpen={true} toggleSidebar={toggleSidebar} />
-      </div>
-      
-      {/* Main Content - different layout for grocery page */}
-      <main className={`w-full md:ml-32 flex-1 p-4 md:p-8 overflow-hidden ${isGroceryPage ? 'flex flex-col items-start' : 'flex justify-center items-center'}`}>
-        <div className={`${isGroceryPage ? 'w-full h-full' : 'w-full max-w-4xl'}`}>
-          {children}
+      <div className="flex-1">
+        <div className={`
+          w-full p-4 md:p-8
+          ${isGroceryPage ? 'flex flex-col items-start' : 'flex justify-center items-center'}
+        `}>
+          <div className={`${isGroceryPage ? 'w-full' : 'w-full max-w-4xl'}`}>
+            {children}
+          </div>
         </div>
-      </main>
-      
-      {/* Mobile Menu Button */}
-      <button 
-        className="md:hidden p-2 fixed top-1 left-1 text-primary-dm hover-highlight-dm rounded-lg 
-          bg-white dark:bg-dark-background shadow-md hover:shadow-lg transition-all" 
-        onClick={toggleSidebar}
-      >
-        ☰
-      </button>
+      </div>
     </div>
   );
 }

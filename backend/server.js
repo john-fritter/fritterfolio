@@ -11,8 +11,20 @@ const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0'; // Listen on all network interfaces
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*', // For development only, restrict this in production
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true
+}));
 app.use(express.json());
+
+// Set proper headers for all responses
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  next();
+});
 
 // Authentication middleware
 const authenticate = async (req, res, next) => {
@@ -190,27 +202,32 @@ app.get('/api/master-list', authenticate, async (req, res) => {
 app.post('/api/master-list/items', authenticate, async (req, res) => {
   try {
     const { name } = req.body;
+    const userId = req.user.id;
     
-    // Make sure name is not null or empty
-    if (!name || name.trim() === '') {
+    if (!name) {
       return res.status(400).json({ error: 'Item name is required' });
     }
     
-    // Get master list id
+    // Get or create master list for this user
     let masterListResult = await db.query(
-      'SELECT * FROM master_lists WHERE user_id = $1',
-      [req.user.id]
+      'SELECT id FROM master_lists WHERE user_id = $1',
+      [userId]
     );
     
+    let masterListId;
+    
     if (masterListResult.rows.length === 0) {
-      masterListResult = await db.query(
-        'INSERT INTO master_lists (user_id) VALUES ($1) RETURNING *',
-        [req.user.id]
+      // Create master list for this user
+      const newMasterList = await db.query(
+        'INSERT INTO master_lists (user_id) VALUES ($1) RETURNING id',
+        [userId]
       );
+      masterListId = newMasterList.rows[0].id;
+    } else {
+      masterListId = masterListResult.rows[0].id;
     }
     
-    const masterListId = masterListResult.rows[0].id;
-    
+    // Add item to master list
     const result = await db.query(
       'INSERT INTO master_list_items (master_list_id, name) VALUES ($1, $2) RETURNING *',
       [masterListId, name]
@@ -218,7 +235,7 @@ app.post('/api/master-list/items', authenticate, async (req, res) => {
     
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error(err);
+    console.error('Error adding master list item:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -507,6 +524,43 @@ app.delete('/api/users/:userId/master-list/clear', async (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
+});
+
+// Update a grocery list
+app.put('/api/grocery-lists/:listId', authenticate, async (req, res) => {
+  try {
+    const { listId } = req.params;
+    const { name } = req.body;
+    
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ error: 'List name is required' });
+    }
+    
+    const result = await db.query(
+      'UPDATE grocery_lists SET name = $1 WHERE id = $2 RETURNING *',
+      [name, listId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'List not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating grocery list:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Add a simple network test endpoint
+app.get('/api/network-test', (req, res) => {
+  console.log("Network test endpoint called");
+  res.json({ 
+    status: 'ok',
+    message: 'Network connection successful',
+    timestamp: new Date(),
+    clientIp: req.ip
+  });
 });
 
 // Start server

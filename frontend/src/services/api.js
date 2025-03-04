@@ -1,16 +1,39 @@
 import { getAuthHeader } from './auth';
 
+// Determine the correct API URL based on hostname
 export const API_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5000/api'
   : `http://${window.location.hostname}:5000/api`;
 
+// Add this helper function to debug fetch issues
+const debugFetch = async (url, options = {}) => {
+  console.log(`Fetching: ${url}`);
+  
+  try {
+    const response = await fetch(url, options);
+    console.log(`Response status: ${response.status}`);
+    return response;
+  } catch (error) {
+    console.error(`Fetch error (${url}):`, error);
+    throw error;
+  }
+};
+
 // Get all grocery lists for a user
 export const getGroceryLists = async () => {
   const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
-  const response = await fetch(`${API_URL}/grocery-lists`, {
+  
+  // Use debugFetch instead of fetch
+  const response = await debugFetch(`${API_URL}/grocery-lists`, {
     headers
   });
-  if (!response.ok) throw new Error('Failed to fetch grocery lists');
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Error fetching lists: ${errorText}`);
+    throw new Error('Failed to fetch grocery lists');
+  }
+  
   return response.json();
 };
 
@@ -81,15 +104,23 @@ export const getMasterList = async () => {
   return response.json();
 };
 
-// Add item to master list
+// Add item to master list - make sure we're sending the correct parameters
 export const addMasterListItem = async (name) => {
   const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
+  console.log("API call to add master list item:", name);
+  
   const response = await fetch(`${API_URL}/master-list/items`, {
     method: 'POST',
     headers,
     body: JSON.stringify({ name })
   });
-  if (!response.ok) throw new Error('Failed to add master list item');
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Master list API error:", errorText);
+    throw new Error('Failed to add master list item');
+  }
+  
   return response.json();
 };
 
@@ -147,4 +178,22 @@ export const clearMasterList = async (userId) => {
 // Ensure we have a proper way to get the auth token
 const getAuthToken = () => {
   return localStorage.getItem('token') || '';
+};
+
+// Update a grocery list
+export const updateGroceryList = async (listId, updates) => {
+  const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
+  const response = await fetch(`${API_URL}/grocery-lists/${listId}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify(updates)
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Update list API error:", errorText);
+    throw new Error('Failed to update grocery list');
+  }
+  
+  return response.json();
 }; 

@@ -13,7 +13,7 @@ export default function Home() {
   }, [user]);
   
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-8">
       <h1 className="text-primary-dm text-4xl font-bold">
         Welcome
       </h1>

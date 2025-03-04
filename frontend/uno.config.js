@@ -10,6 +10,7 @@ export default defineConfig({
       accent: '#f97316',     // Orange
       background: '#f1f5f9', // Soft gray
       highlight: '#38bdf8',  // Light cyan
+      'sidebar-bg': '#f8f9fa', // Example color
 
       // Dark mode
       'dark-primary': '#38bdf8',   // Lighter cyan for better contrast
@@ -23,11 +24,11 @@ export default defineConfig({
     },
   },
   shortcuts: [
-    ['app-bg', 'bg-[#f1f5f9] dark:bg-[#0f172a]'],
-    ['text-primary-dm', 'text-[#0ea5e9] dark:text-[#38bdf8]'],
-    ['text-secondary-dm', 'text-[#334155] dark:text-[#94a3b8]'],
-    ['text-accent-dm', 'text-[#f97316] dark:text-[#fb923c]'],
-    ['hover-highlight-dm', 'hover:text-[#38bdf8] dark:hover:text-[#0ea5e9]'],
+    ['app-bg', 'bg-background dark:bg-dark-background shadow-none border-none'],
+    ['text-primary-dm', 'text-primary dark:text-dark-primary'],
+    ['text-secondary-dm', 'text-secondary dark:text-dark-secondary'],
+    ['text-accent-dm', 'text-accent dark:text-dark-accent'],
+    ['hover-highlight-dm', 'hover:text-highlight dark:hover:text-dark-highlight'],
   ],
   safelist: [
     'text-primary',

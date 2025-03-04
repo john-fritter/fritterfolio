@@ -1,8 +1,23 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="light">
   <head>
+    <!-- Set default theme class -->
+    <script>
+      // Immediate script to set theme before page renders
+      (function() {
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) {
+          document.documentElement.className = savedTheme;
+        } else {
+          const prefersDark = window.matchMedia && 
+            window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.className = prefersDark ? 'dark' : 'light';
+        }
+      })();
+    </script>
+    
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
     <!-- Favicon -->
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">

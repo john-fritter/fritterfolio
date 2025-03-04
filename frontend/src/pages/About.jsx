@@ -3,7 +3,7 @@ import { MdEmail, MdDescription } from "react-icons/md";
 
 const About = () => {
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-6">
       <h1 className="text-primary-dm text-4xl font-bold">About Me</h1>
       
       <p className="text-secondary-dm text-lg leading-relaxed">
