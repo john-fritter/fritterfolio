@@ -608,7 +608,6 @@ export default function Grocery() {
       {/* List of grocery lists view */}
       {view === VIEWS.LISTS && (
         <div className="divide-y divide-gray-200 dark:divide-gray-700">
-          {/* Existing lists with loading spinner */}
           {listsLoading ? (
             <LoadingSpinner />
           ) : groceryLists.length === 0 ? (
@@ -728,49 +727,53 @@ export default function Grocery() {
               </div>
             )
           ) : view === VIEWS.MASTER && (
-            masterList.items && masterList.items.length > 0 ? (
-              masterList.items.map((item, index) => (
-                <div 
-                  key={index}
-                  className="py-3 flex items-center space-x-3"
-                >
-                  {/* Checkbox for multi-select or completion */}
-                  {isMultiSelectMode ? (
-                    <input
-                      type="checkbox"
-                      checked={selectedItems.includes(index)}
-                      onChange={() => toggleItemSelection(index)}
-                      className="h-5 w-5"
-                    />
-                  ) : (
-                    <input
-                      type="checkbox"
-                      checked={item.completed}
-                      onChange={() => toggleItem(index)}
-                      className="h-5 w-5"
-                    />
-                  )}
-                  
-                  <span 
-                    className={`flex-1 ${item.completed && !isMultiSelectMode ? 'line-through text-gray-400' : 'text-secondary-dm'}`}
-                  >
-                    {item.name}
-                  </span>
-                  
-                  <button
-                    onClick={() => deleteMasterItem(item.id, index)}
-                    className="text-red-500 p-1 rounded hover:bg-red-50"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-              ))
+            masterLoading ? (
+              <LoadingSpinner />
             ) : (
-              <div className="py-4 text-center text-secondary-dm">
-                Your master list is empty. Items you add to any list will appear here.
-              </div>
+              masterList.items && masterList.items.length > 0 ? (
+                masterList.items.map((item, index) => (
+                  <div 
+                    key={index}
+                    className="py-3 flex items-center space-x-3"
+                  >
+                    {/* Checkbox for multi-select or completion */}
+                    {isMultiSelectMode ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedItems.includes(index)}
+                        onChange={() => toggleItemSelection(index)}
+                        className="h-5 w-5"
+                      />
+                    ) : (
+                      <input
+                        type="checkbox"
+                        checked={item.completed}
+                        onChange={() => toggleItem(index)}
+                        className="h-5 w-5"
+                      />
+                    )}
+                    
+                    <span 
+                      className={`flex-1 ${item.completed && !isMultiSelectMode ? 'line-through text-gray-400' : 'text-secondary-dm'}`}
+                    >
+                      {item.name}
+                    </span>
+                    
+                    <button
+                      onClick={() => deleteMasterItem(item.id, index)}
+                      className="text-red-500 p-1 rounded hover:bg-red-50"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="py-4 text-center text-secondary-dm">
+                  Your master list is empty. Items you add to any list will appear here.
+                </div>
+              )
             )
           )}
           
