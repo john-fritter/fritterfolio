@@ -1,9 +1,17 @@
 import { getAuthHeader } from './auth';
 
-// Determine the correct API URL based on hostname
-export const API_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5000/api'
-  : `http://${window.location.hostname}:5000/api`;
+// Fix network addressing
+export const API_URL = (() => {
+  const hostname = window.location.hostname;
+  const port = '5000'; // Your backend port
+  
+  if (hostname === 'localhost') {
+    return `http://localhost:${port}/api`;
+  }
+  
+  // For all other cases, use the current hostname
+  return `http://${hostname}:${port}/api`;
+})();
 
 // Add this helper function to debug fetch issues
 const debugFetch = async (url, options = {}) => {
@@ -196,4 +204,62 @@ export const updateGroceryList = async (listId, updates) => {
   }
   
   return response.json();
-}; 
+};
+
+// Update registration function for better mobile support
+export const registerUser = async (userData) => {
+  try {
+    console.log('Attempting registration with URL:', `${API_URL}/auth/register`);
+    
+    const response = await fetch(`${API_URL}/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(userData),
+      // Important for mobile browsers
+      mode: 'cors',
+      credentials: 'include'
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Registration failed');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Registration error:', error);
+    throw error;
+  }
+};
+
+// Update the test registration function
+export async function testRegistration() {
+  return new Promise((resolve, reject) => {
+    try {
+      console.log('Testing with XMLHttpRequest...');
+      const xhr = new XMLHttpRequest();
+      const testData = { email: 'test@example.com', password: 'test123' };
+      
+      xhr.open('POST', 'http://192.168.0.196:5000/api/test-register', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      
+      xhr.onload = function() {
+        if (this.status >= 200 && this.status < 300) {
+          resolve(xhr.responseText);
+        } else {
+          reject(new Error(`XHR Error: ${xhr.statusText}`));
+        }
+      };
+      
+      xhr.onerror = function() {
+        reject(new Error('XHR Network Error'));
+      };
+      
+      xhr.send(JSON.stringify(testData));
+    } catch (error) {
+      reject(error);
+    }
+  });
+}

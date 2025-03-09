@@ -11,7 +11,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   
   const navigate = useNavigate();
-  const { login, register } = useAuth();
+  const { login, register, testRegistration } = useAuth();
   
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -136,6 +136,21 @@ export default function Login() {
           </button>
         </div>
       </form>
+      
+      <button 
+        type="button" 
+        className="mt-2 w-full p-2 bg-blue-500 text-white rounded"
+        onClick={async () => {
+          try {
+            const result = await testRegistration();
+            alert(`Test result: ${result}`);
+          } catch (error) {
+            alert(`Test failed: ${error.message}`);
+          }
+        }}
+      >
+        Test Mobile Registration
+      </button>
     </div>
   );
 }

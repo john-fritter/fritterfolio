@@ -1,24 +1,29 @@
-const API_URL = 'http://localhost:5000/api';
+import { API_URL } from './api';
 
 // Register a new user
 export const register = async (email, password) => {
-  const response = await fetch(`${API_URL}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password })
-  });
-  
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Registration failed');
+  try {
+    const response = await fetch(`${API_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      mode: 'cors',
+      credentials: 'include'
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Registration error:', errorData);
+      throw new Error(errorData.error || 'Registration failed');
+    }
+    
+    const data = await response.json();
+    localStorage.setItem('token', data.token);
+    return data.user;
+  } catch (error) {
+    console.error('Registration error:', error);
+    throw error;
   }
-  
-  const data = await response.json();
-  
-  // Store token in localStorage
-  localStorage.setItem('token', data.token);
-  
-  return data.user;
 };
 
 // Login user

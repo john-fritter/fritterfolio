@@ -6,7 +6,7 @@ async function initializeDatabase() {
     // Create users table
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
+        id UUID PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
         password TEXT,
         name TEXT,
@@ -18,10 +18,11 @@ async function initializeDatabase() {
     await db.query(`
       CREATE TABLE IF NOT EXISTS sessions (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER NOT NULL,
+        user_id UUID NOT NULL,
         token TEXT NOT NULL,
         expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
     `);
 
@@ -30,8 +31,9 @@ async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS grocery_lists (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
-        owner_id INTEGER NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        owner_id UUID NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
       );
     `);
 
@@ -51,8 +53,9 @@ async function initializeDatabase() {
     await db.query(`
       CREATE TABLE IF NOT EXISTS master_lists (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER NOT NULL UNIQUE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        user_id UUID NOT NULL UNIQUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
     `);
 

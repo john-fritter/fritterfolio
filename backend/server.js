@@ -11,18 +11,22 @@ const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0'; // Listen on all network interfaces
 
 // Middleware
-app.use(cors({
-  origin: '*', // For development only, restrict this in production
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  credentials: true
-}));
+const corsOptions = {
+  origin: function(origin, callback) {
+    callback(null, true); // Allow all origins for now
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Set proper headers for all responses
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   next();
 });
 
@@ -340,24 +344,26 @@ app.post('/api/auth/register', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
     
-    // Create user
+    // Generate UUID for new user
+    const userId = uuidv4();
+    
+    // Create user with UUID
     const result = await db.query(
-      'INSERT INTO users (email, password, name) VALUES ($1, $2, $3) RETURNING id, email, name',
-      [email, hashedPassword, name]
+      'INSERT INTO users (id, email, password, name) VALUES ($1, $2, $3, $4) RETURNING id, email, name',
+      [userId, email, hashedPassword, name]
     );
     
     const user = result.rows[0];
     
     // Create a token
     const token = jwt.sign(
-      { userId: user.id }, 
-      process.env.JWT_SECRET, 
+      { userId: user.id },
+      process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN }
     );
     
     const expiration = new Date();
-    const days = parseInt(process.env.JWT_EXPIRES_IN);
-    expiration.setDate(expiration.getDate() + days);
+    expiration.setDate(expiration.getDate() + parseInt(process.env.JWT_EXPIRES_IN));
 
     // Store token in database
     await db.query(
@@ -375,7 +381,7 @@ app.post('/api/auth/register', async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error during registration' });
   }
 });
 
@@ -563,7 +569,14 @@ app.get('/api/network-test', (req, res) => {
   });
 });
 
+// Test endpoint for debugging registration
+app.post('/api/test-register', (req, res) => {
+  console.log('Test register endpoint reached');
+  console.log('Request body:', req.body);
+  return res.status(200).json({ success: true, message: 'Registration test successful' });
+});
+
 // Start server
-app.listen(PORT, HOST, () => {
-  console.log(`Server running on http://${HOST}:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
 }); 
