@@ -38,7 +38,8 @@ export default function Grocery() {
     fetchGroceryLists,
     createList,
     deleteList,
-    updateListName
+    updateListName,
+    updateListItemsCount
   } = useGroceryLists(user);
 
   const {
@@ -51,7 +52,7 @@ export default function Grocery() {
     deleteItem,
     toggleItem,
     toggleAllItems
-  } = useGroceryItems(currentList?.id);
+  } = useGroceryItems(currentList?.id, updateListItemsCount);
 
   const {
     masterList,
@@ -290,9 +291,12 @@ export default function Grocery() {
                       <div className="flex items-center">
                         <span className="text-secondary-dm">{list.name}</span>
                         <span className="ml-2 text-sm text-secondary-dm opacity-75">
-                          {Array.isArray(list.items) ? `${list.items.length} items` : "0 items"}
+                          {(() => {
+                            const itemCount = Array.isArray(list.items) ? list.items.length : 0;
+                            return `${itemCount} items`;
+                          })()}
                         </span>
-                </div>
+                      </div>
                     }
                     rightElements={
                       <>

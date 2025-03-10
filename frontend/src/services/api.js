@@ -13,26 +13,11 @@ export const API_URL = (() => {
   return `http://${hostname}:${port}/api`;
 })();
 
-// Add this helper function to debug fetch issues
-const debugFetch = async (url, options = {}) => {
-  console.log(`Fetching: ${url}`);
-  
-  try {
-    const response = await fetch(url, options);
-    console.log(`Response status: ${response.status}`);
-    return response;
-  } catch (error) {
-    console.error(`Fetch error (${url}):`, error);
-    throw error;
-  }
-};
-
 // Get all grocery lists for a user
 export const getGroceryLists = async () => {
   const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
   
-  // Use debugFetch instead of fetch
-  const response = await debugFetch(`${API_URL}/grocery-lists`, {
+  const response = await fetch(`${API_URL}/grocery-lists`, {
     headers
   });
   
@@ -115,7 +100,6 @@ export const getMasterList = async () => {
 // Add item to master list - make sure we're sending the correct parameters
 export const addMasterListItem = async (name) => {
   const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
-  console.log("API call to add master list item:", name);
   
   const response = await fetch(`${API_URL}/master-list/items`, {
     method: 'POST',
@@ -208,9 +192,7 @@ export const updateGroceryList = async (listId, updates) => {
 
 // Update registration function for better mobile support
 export const registerUser = async (userData) => {
-  try {
-    console.log('Attempting registration with URL:', `${API_URL}/auth/register`);
-    
+  try { 
     const response = await fetch(`${API_URL}/auth/register`, {
       method: 'POST',
       headers: {

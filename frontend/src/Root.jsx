@@ -1,5 +1,5 @@
 import App from "./App.jsx";
-import { ThemeProvider } from './hooks/theme';
+import { ThemeProvider } from './context/ThemeProvider';
 
 export default function Root() {
   return (

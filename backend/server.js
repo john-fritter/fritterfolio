@@ -87,12 +87,44 @@ app.get('/api/health', (req, res) => {
 app.get('/api/grocery-lists', authenticate, async (req, res) => {
   try {
     const result = await db.query(
-      'SELECT * FROM grocery_lists WHERE owner_id = $1 ORDER BY created_at DESC',
+      `WITH list_items AS (
+         SELECT 
+           gi.list_id,
+           CASE 
+             WHEN COUNT(gi.id) = 0 THEN '[]'::json
+             ELSE json_agg(
+               json_build_object(
+                 'id', gi.id,
+                 'name', gi.name,
+                 'completed', gi.completed,
+                 'created_at', gi.created_at
+               )
+             )
+           END as items
+         FROM grocery_items gi
+         GROUP BY gi.list_id
+       )
+       SELECT 
+         gl.id,
+         gl.name,
+         gl.owner_id,
+         gl.created_at,
+         COALESCE(li.items, '[]'::json) as items
+       FROM grocery_lists gl
+       LEFT JOIN list_items li ON gl.id = li.list_id
+       WHERE gl.owner_id = $1
+       ORDER BY gl.created_at DESC`,
       [req.user.id]
     );
-    res.json(result.rows);
+    
+    const lists = result.rows.map(list => ({
+      ...list,
+      items: Array.isArray(list.items) ? list.items : []
+    }));
+    
+    res.json(lists);
   } catch (err) {
-    console.error(err);
+    console.error('Error in /api/grocery-lists:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

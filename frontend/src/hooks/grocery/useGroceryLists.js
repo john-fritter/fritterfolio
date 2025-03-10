@@ -15,17 +15,17 @@ export const useGroceryLists = (user) => {
       setListsLoading(true);
       const lists = await api.getGroceryLists();
       
-      // Make sure every list has an items array, even if empty
-      const listsWithItems = lists.map(list => ({
+      // Ensure each list has an items array
+      const processedLists = lists.map(list => ({
         ...list,
-        items: list.items || []
+        items: Array.isArray(list.items) ? list.items : []
       }));
       
-      setGroceryLists(listsWithItems);
+      setGroceryLists(processedLists);
       
       // If no current list is selected but lists exist, select the first one
-      if (!currentList && listsWithItems.length > 0) {
-        setCurrentList(listsWithItems[0]);
+      if (!currentList && processedLists.length > 0) {
+        setCurrentList(processedLists[0]);
       }
     } catch (error) {
       console.error("Error fetching grocery lists:", error);
@@ -40,14 +40,67 @@ export const useGroceryLists = (user) => {
     
     try {
       const newList = await api.createGroceryList(name);
-      setCurrentList({ ...newList, items: [] });
-      setGroceryLists(prev => [newList, ...prev]);
-      return newList;
+      console.log('Created new list:', newList);
+      const listWithItems = { ...newList, items: [] };
+      setCurrentList(listWithItems);
+      setGroceryLists(prev => [listWithItems, ...prev]);
+      return listWithItems;
     } catch (error) {
       console.error("Error creating new list:", error);
       throw error;
     }
   };
+
+  // Update list items count
+  const updateListItemsCount = useCallback((listId, delta) => {
+    console.log(`Updating count for list ${listId} by ${delta}`);
+    setGroceryLists(prev => {
+      const updated = prev.map(list => {
+        if (list.id === listId) {
+          const items = Array.isArray(list.items) ? list.items : [];
+          const currentCount = items.length;
+          console.log(`Current count: ${currentCount}, New count: ${currentCount + delta}`);
+          
+          if (delta > 0) {
+            // Adding items - extend the array
+            return { 
+              ...list, 
+              items: [...items, ...Array(delta).fill(null)]
+            };
+          } else {
+            // Removing items - shrink the array
+            return { 
+              ...list, 
+              items: items.slice(0, Math.max(0, currentCount + delta))
+            };
+          }
+        }
+        return list;
+      });
+      console.log('Updated lists:', updated);
+      return updated;
+    });
+    
+    if (currentList?.id === listId) {
+      setCurrentList(prev => {
+        const items = Array.isArray(prev.items) ? prev.items : [];
+        const currentCount = items.length;
+        const newCount = Math.max(0, currentCount + delta);
+        
+        if (delta > 0) {
+          return { 
+            ...prev, 
+            items: [...items, ...Array(delta).fill(null)]
+          };
+        } else {
+          return { 
+            ...prev, 
+            items: items.slice(0, newCount)
+          };
+        }
+      });
+    }
+  }, [currentList]);
 
   // Delete a list
   const deleteList = async (listId) => {
@@ -100,6 +153,7 @@ export const useGroceryLists = (user) => {
     fetchGroceryLists,
     createList,
     deleteList,
-    updateListName
+    updateListName,
+    updateListItemsCount
   };
 }; 

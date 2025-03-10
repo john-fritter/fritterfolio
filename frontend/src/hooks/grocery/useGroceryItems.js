@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import * as api from '../../services/api';
 
-export const useGroceryItems = (listId) => {
+export const useGroceryItems = (listId, updateListCount) => {
   const [items, setItems] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [newItem, setNewItem] = useState('');
@@ -28,6 +28,9 @@ export const useGroceryItems = (listId) => {
     try {
       const newItemObj = await api.addGroceryItem(listId, name);
       setItems(prev => [...prev, newItemObj]);
+      if (updateListCount) {
+        updateListCount(listId, 1);
+      }
       return newItemObj;
     } catch (error) {
       console.error("Error adding item:", error);
@@ -40,6 +43,9 @@ export const useGroceryItems = (listId) => {
     try {
       await api.deleteGroceryItem(itemId);
       setItems(prev => prev.filter(item => item.id !== itemId));
+      if (updateListCount) {
+        updateListCount(listId, -1);
+      }
     } catch (error) {
       console.error("Error deleting item:", error);
       throw error;
