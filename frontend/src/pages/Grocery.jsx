@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../hooks/auth';
 import { useNavigate } from 'react-router-dom';
+import * as api from '../services/api';
 
 // Import components
 import LoadingSpinner from '../components/grocery/LoadingSpinner';
@@ -11,6 +12,8 @@ import ListEditingModal from '../components/grocery/ListEditingModal';
 import ListSelectionModal from '../components/grocery/ListSelectionModal';
 import ShareListModal from '../components/grocery/ShareListModal';
 import PendingSharesNotification from '../components/grocery/PendingSharesNotification';
+import ItemEditingModal from '../components/grocery/ItemEditingModal';
+import SmartTruncatedTags from '../components/grocery/SmartTruncatedTags';
 
 // Import hooks
 import { useGroceryLists } from '../hooks/grocery/useGroceryLists';
@@ -54,7 +57,8 @@ export default function Grocery() {
     addItem,
     deleteItem,
     toggleItem,
-    toggleAllItems
+    toggleAllItems,
+    updateItem
   } = useGroceryItems(currentList?.id, updateListItemsCount);
 
   const {
@@ -78,7 +82,49 @@ export default function Grocery() {
   } = useListSharing(user);
 
   // Local state
-  const [view, setView] = useState(VIEWS.LISTS);
+  const [view, setView] = useState(() => {
+    // Try to get the saved view from localStorage
+    const savedView = localStorage.getItem('groceryView');
+    const savedListId = localStorage.getItem('currentListId');
+    
+    // Only restore LIST view if we have both the view and a valid list ID
+    if (savedView === VIEWS.LIST && !savedListId) {
+      return VIEWS.LISTS;
+    }
+    
+    return savedView || VIEWS.LISTS;
+  });
+
+  // Save view to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('groceryView', view);
+  }, [view]);
+
+  // Restore current list on mount
+  useEffect(() => {
+    const savedListId = localStorage.getItem('currentListId');
+    if (savedListId && groceryLists.length > 0 && !currentList) {
+      const savedList = groceryLists.find(list => list.id === parseInt(savedListId));
+      if (savedList) {
+        setCurrentList(savedList);
+      }
+    }
+  }, [groceryLists, currentList, setCurrentList]);
+
+  // Save current list ID to localStorage
+  useEffect(() => {
+    if (currentList?.id) {
+      localStorage.setItem('currentListId', currentList.id);
+    }
+  }, [currentList?.id]);
+
+  // When currentList becomes set and view is 'LIST', fetch items for that list
+  useEffect(() => {
+    if (view === VIEWS.LIST && currentList) {
+      fetchItems(currentList.id);
+    }
+  }, [currentList, view, fetchItems]);
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [notification, setNotification] = useState(null);
   const [editingList, setEditingList] = useState(null);
@@ -86,6 +132,43 @@ export default function Grocery() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [showPendingShares, setShowPendingShares] = useState(true);
   const [combinedLists, setCombinedLists] = useState([]);
+  const [editingItem, setEditingItem] = useState(null);
+  const [allTags, setAllTags] = useState([]);
+
+  // Added dropdownRef and useEffect to collapse the dropdown when clicking outside
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    };
+
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [menuOpen]);
+
+  // Fetch tags when component mounts
+  useEffect(() => {
+    const fetchTags = async () => {
+      try {
+        const tags = await api.getTags();
+        setAllTags(tags);
+      } catch (error) {
+        console.error('Error fetching tags:', error);
+      }
+    };
+
+    if (user) {
+      fetchTags();
+    }
+  }, [user]);
 
   // Initialize and fetch data
   useEffect(() => {
@@ -374,6 +457,46 @@ export default function Grocery() {
     }
   };
 
+  const handleDeleteTag = async (tag) => {
+    try {
+      await api.deleteTag(tag.text);
+      setAllTags(prev => prev.filter(t => t.text !== tag.text));
+      setNotification({
+        message: `Tag "${tag.text}" deleted`,
+        type: "success"
+      });
+    } catch (error) {
+      console.error('Error deleting tag:', error);
+      setNotification({
+        message: "Failed to delete tag",
+        type: "error"
+      });
+    }
+  };
+
+  // Handle item update
+  const handleUpdateItem = async (itemId, updates) => {
+    try {
+      // Update allTags with any new tags
+      if (updates.tags) {
+        setAllTags(prev => {
+          const newTags = updates.tags.filter(newTag => 
+            !prev.some(existingTag => existingTag.text === newTag.text)
+          );
+          return [...prev, ...newTags];
+        });
+      }
+
+      await updateItem(itemId, updates);
+      setEditingItem(null);
+    } catch {
+      setNotification({
+        message: "Failed to update item",
+        type: "error"
+      });
+    }
+  };
+
   // Menu items for the dropdown menu
   const menuItems = [
     { 
@@ -416,6 +539,10 @@ export default function Grocery() {
             (view === VIEWS.MASTER && masterList?.items?.some(item => item.completed))
     }
   ];
+
+  // Sort items in alphabetical order
+  const sortedItems = items ? [...items].sort((a, b) => a.name.localeCompare(b.name)) : [];
+  const sortedMasterItems = masterList && masterList.items ? [...masterList.items].sort((a, b) => a.name.localeCompare(b.name)) : [];
 
   // Render function
   return (
@@ -478,7 +605,7 @@ export default function Grocery() {
             </h1>
           }
           rightElements={
-            <div className="relative">
+            <div className="relative" ref={dropdownRef}>
               <ActionButton
                 icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />}
                 onClick={() => setMenuOpen(!menuOpen)}
@@ -619,8 +746,8 @@ export default function Grocery() {
               {itemsLoading || masterLoading ? (
                 <LoadingSpinner />
               ) : view === VIEWS.LIST ? (
-                items?.length > 0 ? (
-                  items.map(item => (
+                sortedItems.length > 0 ? (
+                  sortedItems.map(item => (
                     <ListRow
                       key={item.id}
                       leftElement={
@@ -632,17 +759,32 @@ export default function Grocery() {
                         />
                       }
                       text={
-                        <span className={item.completed ? 'text-lg text-secondary-dm line-through truncate block max-w-64 sm:max-w-none' : 'text-lg text-secondary-dm truncate block max-w-64 sm:max-w-none'}>
-                          {item.name}
-                        </span>
+                        <div className="relative w-full flex items-center gap-2">
+                          <div className="flex-none whitespace-nowrap">
+                            <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
+                              {item.name}
+                            </span>
+                          </div>
+                          {item.tags && item.tags.length > 0 && (
+                            <div className="flex-1 min-w-0">
+                              <SmartTruncatedTags tags={item.tags} />
+                            </div>
+                          )}
+                        </div>
                       }
                       rightElements={
-                        <ActionButton 
-                          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
-                          onClick={() => deleteItem(item.id)}
-                          color="accent"
-                          iconColor="text-red-500"
-                        />
+                        <>
+                          <ActionButton 
+                            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
+                            onClick={() => setEditingItem(item)}
+                          />
+                          <ActionButton 
+                            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
+                            onClick={() => deleteItem(item.id)}
+                            color="accent"
+                            iconColor="text-red-500"
+                          />
+                        </>
                       }
                     />
                   ))
@@ -652,8 +794,8 @@ export default function Grocery() {
                   </div>
                 )
               ) : (
-                masterList.items?.length > 0 ? (
-                  masterList.items.map(item => (
+                sortedMasterItems.length > 0 ? (
+                  sortedMasterItems.map(item => (
                     <ListRow
                       key={item.id}
                       leftElement={
@@ -747,6 +889,16 @@ export default function Grocery() {
         isShared={currentList?.is_shared || false}
         onClose={() => setShowShareModal(false)}
         onShare={handleShareList}
+      />
+
+      <ItemEditingModal
+        isOpen={!!editingItem}
+        itemName={editingItem?.name || ''}
+        tags={editingItem?.tags || [editingItem?.tag].filter(Boolean) || []}
+        allTags={allTags}
+        onSave={(updates) => handleUpdateItem(editingItem.id, updates)}
+        onCancel={() => setEditingItem(null)}
+        onDeleteTag={handleDeleteTag}
       />
     </div>
   );

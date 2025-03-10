@@ -280,3 +280,24 @@ export const respondToSharedList = async (shareId, status) => {
   
   return response.json();
 };
+
+// Get all tags for the current user
+export const getTags = async () => {
+  const headers = { ...getAuthHeader() };
+  const response = await fetch(`${API_URL}/tags`, {
+    headers
+  });
+  if (!response.ok) throw new Error('Failed to fetch tags');
+  return response.json();
+};
+
+// Delete a tag
+export const deleteTag = async (tagText) => {
+  const headers = { ...getAuthHeader() };
+  const response = await fetch(`${API_URL}/tags/${encodeURIComponent(tagText)}`, {
+    method: 'DELETE',
+    headers
+  });
+  if (!response.ok) throw new Error('Failed to delete tag');
+  return response.json();
+};

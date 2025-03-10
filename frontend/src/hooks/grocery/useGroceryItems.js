@@ -85,6 +85,22 @@ export const useGroceryItems = (listId, updateListCount) => {
     }
   };
 
+  // Update item
+  const updateItem = async (itemId, updates) => {
+    try {
+      const updatedItem = await api.updateGroceryItem(itemId, updates);
+      setItems(prev => 
+        prev.map(item => 
+          item.id === itemId ? updatedItem : item
+        )
+      );
+      return updatedItem;
+    } catch (error) {
+      console.error("Error updating item:", error);
+      throw error;
+    }
+  };
+
   return {
     items,
     itemsLoading,
@@ -94,6 +110,7 @@ export const useGroceryItems = (listId, updateListCount) => {
     addItem,
     deleteItem,
     toggleItem,
-    toggleAllItems
+    toggleAllItems,
+    updateItem
   };
 }; 

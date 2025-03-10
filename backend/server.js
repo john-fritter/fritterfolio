@@ -33,20 +33,16 @@ app.use((req, res, next) => {
 // Authentication middleware
 const authenticate = async (req, res, next) => {
   try {
-    console.log("Authentication request headers:", req.headers);
     const token = req.headers.authorization?.split(' ')[1];
     
     if (!token) {
-      console.log("No token provided in request");
       return res.status(401).json({ error: 'No token provided' });
     }
     
     // Verify the token first
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      console.log("Token verified successfully");
     } catch (tokenError) {
-      console.log("Token verification failed:", tokenError.message);
       return res.status(401).json({ error: 'Invalid token: ' + tokenError.message });
     }
     
@@ -57,12 +53,10 @@ const authenticate = async (req, res, next) => {
     );
     
     if (sessionResult.rows.length === 0) {
-      console.log("Token not found in sessions or expired");
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
     
     const session = sessionResult.rows[0];
-    console.log("Found valid session for user:", session.user_id);
     
     // Get user using UUID
     const userResult = await db.query(
@@ -71,12 +65,10 @@ const authenticate = async (req, res, next) => {
     );
     
     if (userResult.rows.length === 0) {
-      console.log("User not found for id:", session.user_id);
       return res.status(404).json({ error: 'User not found' });
     }
     
     req.user = userResult.rows[0];
-    console.log("Authentication successful for user:", req.user.email);
     next();
   } catch (err) {
     console.error("Authentication error:", err);
@@ -109,7 +101,18 @@ app.get('/api/grocery-lists', authenticate, async (req, res) => {
                  'id', gi.id,
                  'name', gi.name,
                  'completed', gi.completed,
-                 'created_at', gi.created_at
+                 'created_at', gi.created_at,
+                 'tags', COALESCE(
+                   (
+                     SELECT json_agg(
+                       json_build_object('text', t.text, 'color', t.color)
+                     )
+                     FROM item_tags it
+                     JOIN tags t ON it.tag_id = t.id
+                     WHERE it.item_id = gi.id
+                   ),
+                   '[]'
+                 )
                )
              )
            END as items
@@ -167,11 +170,31 @@ app.post('/api/grocery-lists', authenticate, async (req, res) => {
 });
 
 // Grocery Items Routes
-app.get('/api/grocery-lists/:listId/items', async (req, res) => {
+app.get('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
   try {
     const { listId } = req.params;
     const result = await db.query(
-      'SELECT * FROM grocery_items WHERE list_id = $1 ORDER BY created_at',
+      `SELECT 
+        gi.id, 
+        gi.list_id, 
+        gi.name, 
+        gi.completed, 
+        gi.created_at,
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_object('text', t.text, 'color', t.color)
+            )
+            FROM item_tags it
+            JOIN tags t ON it.tag_id = t.id
+            WHERE it.item_id = gi.id
+          ),
+          '[]'
+        ) as tags
+      FROM grocery_items gi
+      WHERE gi.list_id = $1
+      GROUP BY gi.id
+      ORDER BY gi.created_at`,
       [listId]
     );
     res.json(result.rows);
@@ -181,7 +204,7 @@ app.get('/api/grocery-lists/:listId/items', async (req, res) => {
   }
 });
 
-app.post('/api/grocery-lists/:listId/items', async (req, res) => {
+app.post('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
   try {
     const { listId } = req.params;
     const { name } = req.body;
@@ -196,32 +219,90 @@ app.post('/api/grocery-lists/:listId/items', async (req, res) => {
   }
 });
 
-app.put('/api/grocery-items/:itemId', async (req, res) => {
+app.put('/api/grocery-items/:itemId', authenticate, async (req, res) => {
   try {
     const { itemId } = req.params;
-    const { completed, name } = req.body;
+    const { completed, name, tags } = req.body;
     let result;
     
+    await db.query('BEGIN');
+    
     if (name !== undefined) {
+      // Update item name
       result = await db.query(
         'UPDATE grocery_items SET name = $1 WHERE id = $2 RETURNING *',
         [name, itemId]
       );
+      
+      // Handle tags if provided
+      if (tags !== undefined) {
+        // First, remove all existing tags for this item
+        await db.query(
+          'DELETE FROM item_tags WHERE item_id = $1',
+          [itemId]
+        );
+        
+        // Then add new tags
+        if (tags && tags.length > 0) {
+          for (const tag of tags) {
+            // First, get or create the tag
+            const tagResult = await db.query(
+              `INSERT INTO tags (text, color, user_id)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (text, user_id) DO UPDATE SET color = $2
+               RETURNING id`,
+              [tag.text, tag.color, req.user.id]
+            );
+            
+            // Then create the item-tag association
+            await db.query(
+              'INSERT INTO item_tags (item_id, tag_id) VALUES ($1, $2)',
+              [itemId, tagResult.rows[0].id]
+            );
+          }
+        }
+      }
     } else {
+      // Update completion status
       result = await db.query(
         'UPDATE grocery_items SET completed = $1 WHERE id = $2 RETURNING *',
         [completed, itemId]
       );
     }
     
-    res.json(result.rows[0]);
+    // Get the updated item with its tags
+    const updatedResult = await db.query(
+      `SELECT 
+        gi.*,
+        COALESCE(
+          json_agg(
+            CASE 
+              WHEN t.id IS NOT NULL THEN 
+                json_build_object('text', t.text, 'color', t.color)
+              ELSE NULL 
+            END
+          ) FILTER (WHERE t.id IS NOT NULL),
+          '[]'
+        ) as tags
+      FROM grocery_items gi
+      LEFT JOIN item_tags it ON gi.id = it.item_id
+      LEFT JOIN tags t ON it.tag_id = t.id
+      WHERE gi.id = $1
+      GROUP BY gi.id`,
+      [itemId]
+    );
+    
+    await db.query('COMMIT');
+    
+    res.json(updatedResult.rows[0]);
   } catch (err) {
+    await db.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-app.delete('/api/grocery-items/:itemId', async (req, res) => {
+app.delete('/api/grocery-items/:itemId', authenticate, async (req, res) => {
   try {
     const { itemId } = req.params;
     await db.query('DELETE FROM grocery_items WHERE id = $1', [itemId]);
@@ -637,12 +718,10 @@ app.get('/api/network-test', (req, res) => {
 // List Sharing Routes
 app.post('/api/grocery-lists/:listId/share', authenticate, async (req, res) => {
   try {
-    console.log("Share list request:", { listId: req.params.listId, body: req.body, user: req.user.id });
     const { listId } = req.params;
     const { email } = req.body;
     
     if (!email || !email.trim()) {
-      console.log("Share list error: Email address is required");
       return res.status(400).json({ error: 'Email address is required' });
     }
     
@@ -651,10 +730,8 @@ app.post('/api/grocery-lists/:listId/share', authenticate, async (req, res) => {
       'SELECT * FROM grocery_lists WHERE id = $1 AND owner_id = $2',
       [listId, req.user.id]
     );
-    console.log("List query result:", { rows: listResult.rows.length });
     
     if (listResult.rows.length === 0) {
-      console.log("Share list error: List not found or not owned by user");
       return res.status(404).json({ error: 'List not found or not owned by you' });
     }
     
@@ -663,16 +740,13 @@ app.post('/api/grocery-lists/:listId/share', authenticate, async (req, res) => {
       'SELECT * FROM shared_lists WHERE list_id = $1',
       [listId]
     );
-    console.log("Shared list check result:", { rows: sharedResult.rows.length });
     
     if (sharedResult.rows.length > 0) {
-      console.log("Share list error: List already shared");
       return res.status(400).json({ error: 'This list is already shared' });
     }
     
     // Check if the user is trying to share with themselves
     if (email.toLowerCase() === req.user.email.toLowerCase()) {
-      console.log("Share list error: User tried to share with themselves");
       return res.status(400).json({ error: 'You cannot share a list with yourself' });
     }
     
@@ -681,7 +755,6 @@ app.post('/api/grocery-lists/:listId/share', authenticate, async (req, res) => {
       'SELECT id FROM users WHERE email = $1',
       [email.toLowerCase()]
     );
-    console.log("Target user check result:", { rows: userResult.rows.length });
     
     let sharedWithId = null;
     if (userResult.rows.length > 0) {
@@ -697,7 +770,6 @@ app.post('/api/grocery-lists/:listId/share', authenticate, async (req, res) => {
         'INSERT INTO shared_lists (list_id, owner_id, shared_with_email, shared_with_id, status) VALUES ($1, $2, $3, $4, $5) RETURNING *',
         [listId, req.user.id, email.toLowerCase(), sharedWithId, 'pending']
       );
-      console.log("Share created successfully:", { shareId: shareResult.rows[0].id });
       
       // Update the list to mark it as shared and include recipient email
       await db.query(
@@ -727,7 +799,6 @@ app.post('/api/grocery-lists/:listId/share', authenticate, async (req, res) => {
 // Accept/reject a shared list
 app.put('/api/shared-lists/:shareId', authenticate, async (req, res) => {
   try {
-    console.log("Accepting/rejecting share request:", { shareId: req.params.shareId, status: req.body.status });
     const { shareId } = req.params;
     const { status } = req.body; // 'accepted' or 'rejected'
     
@@ -802,7 +873,6 @@ app.put('/api/shared-lists/:shareId', authenticate, async (req, res) => {
 // Get pending shared lists for the current user
 app.get('/api/shared-lists/pending', authenticate, async (req, res) => {
   try {
-    console.log("Fetching pending shared lists for user:", req.user.id);
     const result = await db.query(
       `SELECT sl.*, gl.name as list_name, u.email as owner_email, u.name as owner_name 
        FROM shared_lists sl
@@ -814,7 +884,6 @@ app.get('/api/shared-lists/pending', authenticate, async (req, res) => {
       [req.user.id, req.user.email]
     );
     
-    console.log("Pending shared lists found:", result.rows.length);
     res.json(result.rows);
   } catch (err) {
     console.error("Error fetching pending shared lists:", err);
@@ -825,7 +894,6 @@ app.get('/api/shared-lists/pending', authenticate, async (req, res) => {
 // Get all lists shared with the current user (accepted only)
 app.get('/api/shared-lists/accepted', authenticate, async (req, res) => {
   try {
-    console.log("Fetching accepted shared lists for user:", req.user.id);
     const result = await db.query(
       `SELECT sl.*, gl.name as list_name, u.email as owner_email, u.name as owner_name,
          (SELECT
@@ -856,11 +924,38 @@ app.get('/api/shared-lists/accepted', authenticate, async (req, res) => {
       items: Array.isArray(list.items) ? list.items : []
     }));
     
-    console.log("Accepted shared lists found:", sharedLists.length);
     res.json(sharedLists);
   } catch (err) {
     console.error("Error fetching accepted shared lists:", err);
     res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+});
+
+// Tags endpoints
+app.get('/api/tags', authenticate, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT text, color FROM tags WHERE user_id = $1 ORDER BY text',
+      [req.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/api/tags/:text', authenticate, async (req, res) => {
+  try {
+    const { text } = req.params;
+    await db.query(
+      'DELETE FROM tags WHERE text = $1 AND user_id = $2',
+      [text, req.user.id]
+    );
+    res.json({ message: 'Tag deleted' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
