@@ -33,14 +33,22 @@ app.use((req, res, next) => {
 // Authentication middleware
 const authenticate = async (req, res, next) => {
   try {
+    console.log("Authentication request headers:", req.headers);
     const token = req.headers.authorization?.split(' ')[1];
     
     if (!token) {
+      console.log("No token provided in request");
       return res.status(401).json({ error: 'No token provided' });
     }
     
     // Verify the token first
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      console.log("Token verified successfully");
+    } catch (tokenError) {
+      console.log("Token verification failed:", tokenError.message);
+      return res.status(401).json({ error: 'Invalid token: ' + tokenError.message });
+    }
     
     // Check if token exists and is not expired in the database
     const sessionResult = await db.query(
@@ -49,10 +57,12 @@ const authenticate = async (req, res, next) => {
     );
     
     if (sessionResult.rows.length === 0) {
+      console.log("Token not found in sessions or expired");
       return res.status(401).json({ error: 'Invalid or expired token' });
     }
     
     const session = sessionResult.rows[0];
+    console.log("Found valid session for user:", session.user_id);
     
     // Get user using UUID
     const userResult = await db.query(
@@ -61,20 +71,22 @@ const authenticate = async (req, res, next) => {
     );
     
     if (userResult.rows.length === 0) {
+      console.log("User not found for id:", session.user_id);
       return res.status(404).json({ error: 'User not found' });
     }
     
     req.user = userResult.rows[0];
+    console.log("Authentication successful for user:", req.user.email);
     next();
   } catch (err) {
-    console.error(err);
+    console.error("Authentication error:", err);
     if (err.name === 'JsonWebTokenError') {
       return res.status(401).json({ error: 'Invalid token' });
     }
     if (err.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired' });
     }
-    res.status(401).json({ error: 'Authentication failed' });
+    res.status(401).json({ error: 'Authentication failed: ' + err.message });
   }
 };
 
@@ -103,15 +115,26 @@ app.get('/api/grocery-lists', authenticate, async (req, res) => {
            END as items
          FROM grocery_items gi
          GROUP BY gi.list_id
+       ),
+       share_info AS (
+         SELECT
+           sl.list_id,
+           sl.shared_with_email,
+           sl.status
+         FROM shared_lists sl
+         WHERE sl.owner_id = $1 AND sl.status = 'accepted'
        )
        SELECT 
          gl.id,
          gl.name,
          gl.owner_id,
          gl.created_at,
+         gl.is_shared,
+         si.shared_with_email,
          COALESCE(li.items, '[]'::json) as items
        FROM grocery_lists gl
        LEFT JOIN list_items li ON gl.id = li.list_id
+       LEFT JOIN share_info si ON gl.id = si.list_id
        WHERE gl.owner_id = $1
        ORDER BY gl.created_at DESC`,
       [req.user.id]
@@ -609,6 +632,236 @@ app.get('/api/network-test', (req, res) => {
     timestamp: new Date(),
     clientIp: req.ip
   });
+});
+
+// List Sharing Routes
+app.post('/api/grocery-lists/:listId/share', authenticate, async (req, res) => {
+  try {
+    console.log("Share list request:", { listId: req.params.listId, body: req.body, user: req.user.id });
+    const { listId } = req.params;
+    const { email } = req.body;
+    
+    if (!email || !email.trim()) {
+      console.log("Share list error: Email address is required");
+      return res.status(400).json({ error: 'Email address is required' });
+    }
+    
+    // Check if the list exists and belongs to the user
+    const listResult = await db.query(
+      'SELECT * FROM grocery_lists WHERE id = $1 AND owner_id = $2',
+      [listId, req.user.id]
+    );
+    console.log("List query result:", { rows: listResult.rows.length });
+    
+    if (listResult.rows.length === 0) {
+      console.log("Share list error: List not found or not owned by user");
+      return res.status(404).json({ error: 'List not found or not owned by you' });
+    }
+    
+    // Check if the list is already shared
+    const sharedResult = await db.query(
+      'SELECT * FROM shared_lists WHERE list_id = $1',
+      [listId]
+    );
+    console.log("Shared list check result:", { rows: sharedResult.rows.length });
+    
+    if (sharedResult.rows.length > 0) {
+      console.log("Share list error: List already shared");
+      return res.status(400).json({ error: 'This list is already shared' });
+    }
+    
+    // Check if the user is trying to share with themselves
+    if (email.toLowerCase() === req.user.email.toLowerCase()) {
+      console.log("Share list error: User tried to share with themselves");
+      return res.status(400).json({ error: 'You cannot share a list with yourself' });
+    }
+    
+    // Check if the user to share with exists
+    const userResult = await db.query(
+      'SELECT id FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+    console.log("Target user check result:", { rows: userResult.rows.length });
+    
+    let sharedWithId = null;
+    if (userResult.rows.length > 0) {
+      sharedWithId = userResult.rows[0].id;
+    }
+    
+    // Create the share
+    try {
+      // Begin a transaction
+      await db.query('BEGIN');
+      
+      const shareResult = await db.query(
+        'INSERT INTO shared_lists (list_id, owner_id, shared_with_email, shared_with_id, status) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+        [listId, req.user.id, email.toLowerCase(), sharedWithId, 'pending']
+      );
+      console.log("Share created successfully:", { shareId: shareResult.rows[0].id });
+      
+      // Update the list to mark it as shared and include recipient email
+      await db.query(
+        'UPDATE grocery_lists SET is_shared = true, shared_with_email = $1 WHERE id = $2',
+        [email.toLowerCase(), listId]
+      );
+      
+      // Commit the transaction
+      await db.query('COMMIT');
+      
+      res.status(201).json({ 
+        message: 'List shared successfully',
+        share: shareResult.rows[0]
+      });
+    } catch (dbError) {
+      // Rollback on error
+      await db.query('ROLLBACK');
+      console.error("Database error while sharing list:", dbError);
+      return res.status(500).json({ error: 'Database error: ' + dbError.message });
+    }
+  } catch (err) {
+    console.error("Share list error:", err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+});
+
+// Accept/reject a shared list
+app.put('/api/shared-lists/:shareId', authenticate, async (req, res) => {
+  try {
+    console.log("Accepting/rejecting share request:", { shareId: req.params.shareId, status: req.body.status });
+    const { shareId } = req.params;
+    const { status } = req.body; // 'accepted' or 'rejected'
+    
+    if (!status || (status !== 'accepted' && status !== 'rejected')) {
+      return res.status(400).json({ error: 'Valid status is required (accepted/rejected)' });
+    }
+    
+    // Check if the share exists and is for this user
+    const shareResult = await db.query(
+      `SELECT sl.*, gl.name as list_name, u.email as owner_email, u.name as owner_name 
+       FROM shared_lists sl
+       JOIN grocery_lists gl ON sl.list_id = gl.id
+       JOIN users u ON sl.owner_id = u.id
+       WHERE sl.id = $1 AND (sl.shared_with_id = $2 OR sl.shared_with_email = $3)`,
+      [shareId, req.user.id, req.user.email]
+    );
+    
+    if (shareResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Shared list not found' });
+    }
+    
+    const share = shareResult.rows[0];
+    
+    // Check if it's already accepted or rejected
+    if (share.status !== 'pending') {
+      return res.status(400).json({ error: `This share has already been ${share.status}` });
+    }
+    
+    // Begin transaction
+    await db.query('BEGIN');
+    
+    try {
+      // Update the share status
+      const updatedShare = await db.query(
+        'UPDATE shared_lists SET status = $1, shared_with_id = $2 WHERE id = $3 RETURNING *',
+        [status, req.user.id, shareId]
+      );
+      
+      if (status === 'accepted') {
+        // If accepted, make sure the shared_with_id is updated in the shared_lists table
+        await db.query(
+          'UPDATE shared_lists SET shared_with_id = $1 WHERE id = $2',
+          [req.user.id, shareId]
+        );
+      } else if (status === 'rejected') {
+        // If rejected, update the list to mark it as not shared
+        await db.query(
+          'UPDATE grocery_lists SET is_shared = false, shared_with_email = NULL WHERE id = $1',
+          [share.list_id]
+        );
+      }
+      
+      // Commit the transaction
+      await db.query('COMMIT');
+      
+      res.json({ 
+        message: `Share ${status}`,
+        share: updatedShare.rows[0]
+      });
+    } catch (dbError) {
+      // Rollback on error
+      await db.query('ROLLBACK');
+      console.error("Database error while processing share response:", dbError);
+      return res.status(500).json({ error: 'Database error: ' + dbError.message });
+    }
+  } catch (err) {
+    console.error("Share response error:", err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+});
+
+// Get pending shared lists for the current user
+app.get('/api/shared-lists/pending', authenticate, async (req, res) => {
+  try {
+    console.log("Fetching pending shared lists for user:", req.user.id);
+    const result = await db.query(
+      `SELECT sl.*, gl.name as list_name, u.email as owner_email, u.name as owner_name 
+       FROM shared_lists sl
+       JOIN grocery_lists gl ON sl.list_id = gl.id
+       JOIN users u ON sl.owner_id = u.id
+       WHERE (sl.shared_with_id = $1 OR sl.shared_with_email = $2) 
+       AND sl.status = 'pending'
+       ORDER BY sl.created_at DESC`,
+      [req.user.id, req.user.email]
+    );
+    
+    console.log("Pending shared lists found:", result.rows.length);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching pending shared lists:", err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+});
+
+// Get all lists shared with the current user (accepted only)
+app.get('/api/shared-lists/accepted', authenticate, async (req, res) => {
+  try {
+    console.log("Fetching accepted shared lists for user:", req.user.id);
+    const result = await db.query(
+      `SELECT sl.*, gl.name as list_name, u.email as owner_email, u.name as owner_name,
+         (SELECT
+           CASE 
+             WHEN COUNT(gi.id) = 0 THEN '[]'::json
+             ELSE json_agg(
+               json_build_object(
+                 'id', gi.id,
+                 'name', gi.name,
+                 'completed', gi.completed,
+                 'created_at', gi.created_at
+               )
+             )
+           END
+         FROM grocery_items gi
+         WHERE gi.list_id = gl.id) as items
+       FROM shared_lists sl
+       JOIN grocery_lists gl ON sl.list_id = gl.id
+       JOIN users u ON sl.owner_id = u.id
+       WHERE (sl.shared_with_id = $1 OR sl.shared_with_email = $2) 
+       AND sl.status = 'accepted'
+       ORDER BY sl.created_at DESC`,
+      [req.user.id, req.user.email]
+    );
+    
+    const sharedLists = result.rows.map(list => ({
+      ...list,
+      items: Array.isArray(list.items) ? list.items : []
+    }));
+    
+    console.log("Accepted shared lists found:", sharedLists.length);
+    res.json(sharedLists);
+  } catch (err) {
+    console.error("Error fetching accepted shared lists:", err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
 });
 
 // Start server

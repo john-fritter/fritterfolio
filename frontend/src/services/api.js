@@ -215,3 +215,68 @@ export const registerUser = async (userData) => {
     throw error;
   }
 };
+
+// Share a list with another user
+export const shareList = async (listId, email) => {
+  const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
+  
+  const response = await fetch(`${API_URL}/grocery-lists/${listId}/share`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ email })
+  });
+  
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Failed to share grocery list');
+  }
+  
+  return response.json();
+};
+
+// Get pending shared lists
+export const getPendingSharedLists = async () => {
+  const headers = { ...getAuthHeader() };
+  
+  const response = await fetch(`${API_URL}/shared-lists/pending`, {
+    headers
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch pending shared lists');
+  }
+  
+  return response.json();
+};
+
+// Get accepted shared lists
+export const getAcceptedSharedLists = async () => {
+  const headers = { ...getAuthHeader() };
+  
+  const response = await fetch(`${API_URL}/shared-lists/accepted`, {
+    headers
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch accepted shared lists');
+  }
+  
+  return response.json();
+};
+
+// Accept or reject a shared list
+export const respondToSharedList = async (shareId, status) => {
+  const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
+  
+  const response = await fetch(`${API_URL}/shared-lists/${shareId}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ status })
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to ${status} shared list`);
+  }
+  
+  return response.json();
+};

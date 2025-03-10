@@ -71,6 +71,34 @@ async function initializeDatabase() {
       );
     `);
 
+    // Create shared_lists table for list sharing functionality
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS shared_lists (
+        id SERIAL PRIMARY KEY,
+        list_id INTEGER NOT NULL,
+        owner_id UUID NOT NULL,
+        shared_with_email TEXT NOT NULL,
+        shared_with_id UUID,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        FOREIGN KEY (list_id) REFERENCES grocery_lists(id) ON DELETE CASCADE,
+        FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (shared_with_id) REFERENCES users(id) ON DELETE SET NULL
+      );
+    `);
+
+    // Add is_shared column to grocery_lists table
+    await db.query(`
+      ALTER TABLE grocery_lists 
+      ADD COLUMN IF NOT EXISTS is_shared BOOLEAN DEFAULT FALSE;
+    `);
+
+    // Add shared_with_email column to grocery_lists table
+    await db.query(`
+      ALTER TABLE grocery_lists 
+      ADD COLUMN IF NOT EXISTS shared_with_email TEXT DEFAULT NULL;
+    `);
+
     console.log('Database initialized successfully!');
     process.exit(0);
   } catch (error) {

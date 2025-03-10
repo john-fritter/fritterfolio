@@ -9,11 +9,14 @@ import ListRow from '../components/grocery/ListRow';
 import ActionButton from '../components/grocery/ActionButton';
 import ListEditingModal from '../components/grocery/ListEditingModal';
 import ListSelectionModal from '../components/grocery/ListSelectionModal';
+import ShareListModal from '../components/grocery/ShareListModal';
+import PendingSharesNotification from '../components/grocery/PendingSharesNotification';
 
 // Import hooks
 import { useGroceryLists } from '../hooks/grocery/useGroceryLists';
 import { useGroceryItems } from '../hooks/grocery/useGroceryItems';
 import { useMasterList } from '../hooks/grocery/useMasterList';
+import { useListSharing } from '../hooks/grocery/useListSharing';
 
 // Views enum
 const VIEWS = {
@@ -64,12 +67,25 @@ export default function Grocery() {
     toggleAllMasterItems
   } = useMasterList(user);
 
+  const {
+    pendingShares,
+    acceptedShares,
+    sharingLoading,
+    shareList: shareListWithUser,
+    acceptShare,
+    rejectShare,
+    fetchAcceptedShares
+  } = useListSharing(user);
+
   // Local state
   const [view, setView] = useState(VIEWS.LISTS);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notification, setNotification] = useState(null);
   const [editingList, setEditingList] = useState(null);
   const [showListSelection, setShowListSelection] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [showPendingShares, setShowPendingShares] = useState(true);
+  const [combinedLists, setCombinedLists] = useState([]);
 
   // Initialize and fetch data
   useEffect(() => {
@@ -83,7 +99,23 @@ export default function Grocery() {
 
     fetchGroceryLists();
     fetchMasterList();
-  }, [user, authLoading, navigate, fetchGroceryLists, fetchMasterList]);
+    fetchAcceptedShares();
+  }, [user, authLoading, navigate, fetchGroceryLists, fetchMasterList, fetchAcceptedShares]);
+
+  // Combine owned and shared lists for display
+  useEffect(() => {
+    // Format shared lists to match grocery lists structure
+    const sharedListsFormatted = acceptedShares.map(share => ({
+      id: share.list_id,
+      name: share.list_name,
+      is_shared: true,
+      shared_with_email: share.owner_email,
+      items: share.items || [],
+      is_received_share: true // Mark as a received share for special handling
+    }));
+    
+    setCombinedLists([...groceryLists, ...sharedListsFormatted]);
+  }, [groceryLists, acceptedShares]);
 
   // Keep new item input focused
   useEffect(() => {
@@ -106,6 +138,7 @@ export default function Grocery() {
 
     try {
       await createList(newListName);
+      setNewListName('');
       setView(VIEWS.LIST);
     } catch {
       setNotification({
@@ -226,7 +259,7 @@ export default function Grocery() {
     }
   };
 
-  // Add handlers for deleting selected items
+  // Handle deleting selected items
   const handleDeleteSelected = async () => {
     if (view === VIEWS.LIST && currentList) {
       const selectedItems = items.filter(item => item.completed);
@@ -279,7 +312,69 @@ export default function Grocery() {
     }
   };
 
-  // Update menuItems array to include delete selected option
+  // Handle sharing a list
+  const handleShareList = async (email) => {
+    if (!currentList) return;
+    
+    try {
+      const result = await shareListWithUser(currentList.id, email);
+      
+      if (result) {
+        setNotification({
+          message: `List shared with ${email}`,
+          type: "success"
+        });
+        
+        // Refresh the lists to update the UI
+        await fetchGroceryLists();
+      }
+    } catch {
+      setNotification({
+        message: "Failed to share list",
+        type: "error"
+      });
+    }
+  };
+
+  // Handle accepting a shared list
+  const handleAcceptShare = async (shareId) => {
+    try {
+      const result = await acceptShare(shareId);
+      
+      if (result) {
+        setNotification({
+          message: "Shared list accepted",
+          type: "success"
+        });
+      }
+    } catch {
+      setNotification({
+        message: "Failed to accept shared list",
+        type: "error"
+      });
+    }
+  };
+
+  // Handle rejecting a shared list
+  const handleRejectShare = async (shareId) => {
+    try {
+      const result = await rejectShare(shareId);
+      
+      if (result) {
+        setNotification({
+          message: "Shared list declined",
+          type: "success"
+        });
+      }
+    } catch {
+      setNotification({
+        message: "Failed to decline shared list",
+        type: "error"
+      });
+    }
+  };
+
+  // Menu items for the dropdown menu
   const menuItems = [
     { 
       label: "Lists View",
@@ -303,6 +398,11 @@ export default function Grocery() {
         }
       },
       show: view !== VIEWS.LIST && currentList !== null
+    },
+    { 
+      label: "Share Current List", 
+      action: () => setShowShareModal(true),
+      show: view === VIEWS.LIST && currentList !== null && !currentList.is_shared
     },
     { 
       label: "Add Selected to Current List", 
@@ -329,6 +429,16 @@ export default function Grocery() {
       )}
 
       <div className="w-full max-w-3xl mx-auto px-2 sm:px-4 flex flex-col h-full min-w-0">
+        {/* Show pending shares notification if there are any */}
+        {showPendingShares && pendingShares.length > 0 && (
+          <PendingSharesNotification
+            pendingShares={pendingShares}
+            onAccept={handleAcceptShare}
+            onReject={handleRejectShare}
+            onClose={() => setShowPendingShares(false)}
+          />
+        )}
+        
         <ListRow
           leftElement={
             ((view === VIEWS.LIST && items?.length > 0) ||
@@ -353,7 +463,17 @@ export default function Grocery() {
           }
           text={
             <h1 className="text-2xl font-bold text-secondary-dm">
-              {view === VIEWS.LIST && currentList ? currentList.name : 
+              {view === VIEWS.LIST && currentList ? (
+                <div className="flex items-center">
+                  <span className="truncate max-w-52 sm:max-w-none">{currentList.name}</span>
+                  {currentList.is_shared && (
+                    <span className="ml-2 text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full whitespace-nowrap">
+                      <span className="hidden sm:inline">{currentList.shared_with_email}</span>
+                      <span className="sm:hidden">Shared</span>
+                    </span>
+                  )}
+                </div>
+              ) : 
                view === VIEWS.MASTER ? 'Master List' : 'My Grocery Lists'}
             </h1>
           }
@@ -382,188 +502,216 @@ export default function Grocery() {
                           {item.label}
                     </button>
                       ))}
-              </div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
           }
         />
       
         <div className="flex-1 overflow-y-auto overflow-x-hidden">
-      {view === VIEWS.LISTS && (
+          {/* Lists View */}
+          {view === VIEWS.LISTS && (
             <div>
-          {listsLoading ? (
-            <LoadingSpinner />
-                ) : groceryLists.length > 0 ? (
-            groceryLists.map(list => (
+              {listsLoading || sharingLoading ? (
+                <LoadingSpinner />
+              ) : combinedLists.length > 0 ? (
+                combinedLists.map(list => (
                   <ListRow
-                key={list.id}
+                    key={list.id + (list.is_received_share ? '-shared' : '')}
                     text={
                       <div className="flex items-center">
-                        <span className="text-lg text-secondary-dm">{list.name}</span>
-                        <span className="ml-2 text-xs text-secondary-dm opacity-75">
+                        <span className="text-lg text-secondary-dm truncate max-w-32 sm:max-w-none">
+                          {list.name}
+                        </span>
+                        {list.is_shared && (
+                          <span className="ml-2 text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
+                            <span className="hidden sm:inline">{list.shared_with_email}</span>
+                            <span className="sm:hidden">Shared</span>
+                          </span>
+                        )}
+                        <span className="ml-2 text-xs text-secondary-dm opacity-75 hidden sm:inline">
                           {(() => {
                             const itemCount = Array.isArray(list.items) ? list.items.length : 0;
                             return `${itemCount} items`;
                           })()}
                         </span>
+                        <span className="ml-2 text-xs sm:hidden inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-secondary-dm">
+                          {Array.isArray(list.items) ? list.items.length : 0}
+                        </span>
                       </div>
                     }
                     rightElements={
                       <>
-                      <ActionButton 
-                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                            setEditingList(list);
-                    }}
-                      />
-                      <ActionButton 
-                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                            if (window.confirm('Are you sure you want to delete this list?')) {
-                      deleteList(list.id);
-                            }
-                    }}
-                        color="accent"
-                        iconColor="text-red-500"
-                      />
+                        {!list.is_received_share && (
+                          <>
+                            <ActionButton 
+                              icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingList(list);
+                              }}
+                            />
+                            {!list.is_shared && (
+                              <ActionButton 
+                                icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCurrentList(list);
+                                  setShowShareModal(true);
+                                }}
+                                iconColor="text-blue-500"
+                              />
+                            )}
+                            <ActionButton 
+                              icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm('Are you sure you want to delete this list?')) {
+                                  deleteList(list.id);
+                                }
+                              }}
+                              color="accent"
+                              iconColor="text-red-500"
+                            />
+                          </>
+                        )}
                       </>
                     }
                     onClick={() => selectList(list)}
                   />
                 ))
-                ) : (
-                  <div className="py-6 text-center text-secondary-dm">
+              ) : (
+                <div className="py-6 text-center text-secondary-dm">
                   You don&apos;t have any grocery lists yet. Create your first list below.
-                  </div>
-                )}
+                </div>
+              )}
                 
               <form onSubmit={handleCreateList}>
-                  <ListRow
-                    hover={false}
-                    leftElement={<div className="h-6 w-6" />}
-                    text={
-              <input
-                type="text"
-                placeholder="New list name..."
-                value={newListName}
-                onChange={(e) => setNewListName(e.target.value)}
-                style={{ fontFamily: 'inherit' }}
-                className="w-full py-2 bg-transparent text-lg font-light font-sans text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
-              />
-                    }
-                    rightElements={
-                      <ActionButton
-                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />}
+                <ListRow
+                  hover={false}
+                  leftElement={<div className="h-6 w-6" />}
+                  text={
+                    <input
+                      type="text"
+                      placeholder="New list name..."
+                      value={newListName}
+                      onChange={(e) => setNewListName(e.target.value)}
+                      style={{ fontFamily: 'inherit' }}
+                      className="w-full py-2 bg-transparent text-lg font-light font-sans text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
+                    />
+                  }
+                  rightElements={
+                    <ActionButton
+                      icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />}
                       onClick={handleCreateList}
-                        iconColor="text-green-500"
-                      />
-                    }
-                  />
-            </form>
-        </div>
-      )}
-      
-      {(view === VIEWS.LIST || view === VIEWS.MASTER) && (
+                      iconColor="text-green-500"
+                    />
+                  }
+                />
+              </form>
+            </div>
+          )}
+
+          {/* List/Master View */}
+          {(view === VIEWS.LIST || view === VIEWS.MASTER) && (
             <div>
-                {itemsLoading || masterLoading ? (
-            <LoadingSpinner />
+              {itemsLoading || masterLoading ? (
+                <LoadingSpinner />
               ) : view === VIEWS.LIST ? (
                 items?.length > 0 ? (
                   items.map(item => (
-                      <ListRow
+                    <ListRow
                       key={item.id}
-                        leftElement={
-                  <input
-                    type="checkbox"
-                    checked={item.completed}
+                      leftElement={
+                        <input
+                          type="checkbox"
+                          checked={item.completed}
                           onChange={() => toggleItem(item.id, !item.completed)}
                           className="h-6 w-6 text-primary border-gray-300 rounded focus:ring-primary"
-                          />
-                        }
-                        text={
-                        <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
-                    {item.name}
-                  </span>
-                        }
-                        rightElements={
-                          <ActionButton 
-                            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
+                        />
+                      }
+                      text={
+                        <span className={item.completed ? 'text-lg text-secondary-dm line-through truncate block max-w-64 sm:max-w-none' : 'text-lg text-secondary-dm truncate block max-w-64 sm:max-w-none'}>
+                          {item.name}
+                        </span>
+                      }
+                      rightElements={
+                        <ActionButton 
+                          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
                           onClick={() => deleteItem(item.id)}
-                            color="accent"
-                            iconColor="text-red-500"
-                          />
-                        }
-                      />
-              ))
-            ) : (
-                    <div className="py-4 px-4 text-center text-xl text-secondary-dm">
-                No items in this list yet. Add your first item below.
-              </div>
-            )
+                          color="accent"
+                          iconColor="text-red-500"
+                        />
+                      }
+                    />
+                  ))
+                ) : (
+                  <div className="py-4 px-4 text-center text-xl text-secondary-dm">
+                    No items in this list yet. Add your first item below.
+                  </div>
+                )
               ) : (
                 masterList.items?.length > 0 ? (
                   masterList.items.map(item => (
-                      <ListRow
+                    <ListRow
                       key={item.id}
-                        leftElement={
-                      <input
-                        type="checkbox"
-                        checked={item.completed}
+                      leftElement={
+                        <input
+                          type="checkbox"
+                          checked={item.completed}
                           onChange={() => toggleMasterItem(item.id, !item.completed)}
                           className="h-6 w-6 text-primary border-gray-300 rounded focus:ring-primary"
-                          />
-                        }
-                        text={
-                        <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
-                      {item.name}
-                    </span>
-                        }
-                        rightElements={
-                          <ActionButton 
-                            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
+                        />
+                      }
+                      text={
+                        <span className={item.completed ? 'text-lg text-secondary-dm line-through truncate block max-w-64 sm:max-w-none' : 'text-lg text-secondary-dm truncate block max-w-64 sm:max-w-none'}>
+                          {item.name}
+                        </span>
+                      }
+                      rightElements={
+                        <ActionButton 
+                          icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
                           onClick={() => deleteMasterItem(item.id)}
-                            color="accent"
-                            iconColor="text-red-500"
-                          />
-                        }
-                      />
-                ))
-              ) : (
-                    <div className="py-4 px-4 text-center text-xl text-secondary-dm">
-                  Your master list is empty. Items you add to any list will appear here.
-                </div>
-            )
-          )}
-          
+                          color="accent"
+                          iconColor="text-red-500"
+                        />
+                      }
+                    />
+                  ))
+                ) : (
+                  <div className="py-4 px-4 text-center text-xl text-secondary-dm">
+                    Your master list is empty. Items you add to any list will appear here.
+                  </div>
+                )
+              )}
+              
               <form onSubmit={handleAddItem}>
-                  <ListRow
-                    hover={false}
-                    leftElement={<div className="h-6 w-6" />}
-                    text={
-              <input
-                ref={newItemInputRef}
-                type="text"
-                placeholder="Add new item..."
-                value={newItem}
-                onChange={(e) => setNewItem(e.target.value)}
-                style={{ fontFamily: 'inherit' }}
-                className="w-full py-2 bg-transparent text-lg font-light font-sans text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
-              />
-                    }
-                    rightElements={
-                      <ActionButton
-                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />}
+                <ListRow
+                  hover={false}
+                  leftElement={<div className="h-6 w-6" />}
+                  text={
+                    <input
+                      ref={newItemInputRef}
+                      type="text"
+                      placeholder="Add new item..."
+                      value={newItem}
+                      onChange={(e) => setNewItem(e.target.value)}
+                      style={{ fontFamily: 'inherit' }}
+                      className="w-full py-2 bg-transparent text-lg font-light font-sans text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
+                    />
+                  }
+                  rightElements={
+                    <ActionButton
+                      icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />}
                       onClick={handleAddItem}
-                        iconColor="text-green-500"
-                      />
-                    }
-                  />
-            </form>
-        </div>
-      )}
+                      iconColor="text-green-500"
+                    />
+                  }
+                />
+              </form>
+            </div>
+          )}
         </div>
       </div>
       
@@ -588,9 +736,17 @@ export default function Grocery() {
           if (targetList) {
             selectList(targetList);
           }
-                  setShowListSelection(false);
+          setShowListSelection(false);
         }}
         onCancel={() => setShowListSelection(false)}
+      />
+
+      <ShareListModal
+        isOpen={showShareModal}
+        listName={currentList?.name || ''}
+        isShared={currentList?.is_shared || false}
+        onClose={() => setShowShareModal(false)}
+        onShare={handleShareList}
       />
     </div>
   );
