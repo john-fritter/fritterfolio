@@ -71,20 +71,20 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
       <div 
         className={`
           fixed inset-y-0 left-0 z-50 
-          w-32
+          w-[128px]
           bg-background dark:bg-dark-background
           transition-transform duration-300 ease-in-out
           transform ${isOpen ? 'translate-x-0' : '-translate-x-full'}
           md:translate-x-0 md:static md:z-0 md:h-screen
           opacity-100
-          flex flex-col justify-between
-          max-h-screen
+          h-[100%] flex flex-col justify-between
           shadow-none border-none
+          overflow-hidden
         `}
         style={{ boxShadow: 'none' }}
       >
         {/* Main Content with selective overflow */}
-        <div className="flex-1 p-4 overflow-y-auto">
+        <div className="flex-1 p-4 overflow-y-auto mb-16 md:mb-0">
           <NavLink
             to="/"
             className="text-2xl font-bold text-primary-dm mb-8 block hover:text-accent-dm transition-colors no-underline"
@@ -107,7 +107,7 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
         </div>
         
         {/* Bottom Controls */}
-        <div className="p-4 bg-background dark:bg-dark-background">
+        <div className="py-3 px-3 mb-2 md:mb-4 bg-background dark:bg-dark-background border-t border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             {/* Auth Button */}
             <div className="relative group">
@@ -135,7 +135,7 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
                 )}
               </button>
               {/* Tooltip */}
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 bg-secondary/90 dark:bg-dark-secondary/90 text-white text-xs px-2 py-1 rounded pointer-events-none whitespace-nowrap">
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 md:group-hover:opacity-100 transition-opacity duration-200 bg-secondary/90 dark:bg-dark-secondary/90 text-white text-xs px-2 py-1 rounded pointer-events-none whitespace-nowrap">
                 {user ? 'Logout' : 'Login'}
               </div>
             </div>
@@ -155,7 +155,7 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
               <span
                 className="
                   absolute -top-1 -right-1 
-                  text-[10px] font-medium text-secondary-dm 
+                  text-xs font-medium text-secondary-dm 
                   bg-white dark:bg-dark-background 
                   rounded-full w-4 h-4 flex items-center justify-center
                 "
@@ -167,15 +167,15 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
         </div>
       </div>
 
-      {/* SINGLE Hamburger Button - Keep only this one */}
-      <button
-        className="fixed top-4 left-4 z-[60] p-2 rounded-md bg-gray-100 dark:bg-gray-800 md:hidden"
-        onClick={toggleSidebar}
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-800 dark:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={isOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"} />
-        </svg>
-      </button>
+      {/* Hamburger Button */}
+      {!isOpen && (
+        <button
+          className="fixed bottom-4 left-4 z-[60] md:hidden border-none outline-none bg-transparent"
+          onClick={toggleSidebar}
+        >
+          <img src="/assets/android-chrome-192x192.png" alt="Menu" className="h-8 w-8 object-contain" />
+        </button>
+      )}
 
       {/* Overlay */}
       {isOpen && (

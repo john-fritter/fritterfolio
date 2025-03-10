@@ -233,33 +233,3 @@ export const registerUser = async (userData) => {
     throw error;
   }
 };
-
-// Update the test registration function
-export async function testRegistration() {
-  return new Promise((resolve, reject) => {
-    try {
-      console.log('Testing with XMLHttpRequest...');
-      const xhr = new XMLHttpRequest();
-      const testData = { email: 'test@example.com', password: 'test123' };
-      
-      xhr.open('POST', 'http://192.168.0.196:5000/api/test-register', true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      
-      xhr.onload = function() {
-        if (this.status >= 200 && this.status < 300) {
-          resolve(xhr.responseText);
-        } else {
-          reject(new Error(`XHR Error: ${xhr.statusText}`));
-        }
-      };
-      
-      xhr.onerror = function() {
-        reject(new Error('XHR Network Error'));
-      };
-      
-      xhr.send(JSON.stringify(testData));
-    } catch (error) {
-      reject(error);
-    }
-  });
-}

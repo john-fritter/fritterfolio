@@ -39,7 +39,10 @@ const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: 'No token provided' });
     }
     
-    // Check if token exists and is not expired
+    // Verify the token first
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    // Check if token exists and is not expired in the database
     const sessionResult = await db.query(
       'SELECT * FROM sessions WHERE token = $1 AND expires_at > NOW()',
       [token]
@@ -51,7 +54,7 @@ const authenticate = async (req, res, next) => {
     
     const session = sessionResult.rows[0];
     
-    // Get user
+    // Get user using UUID
     const userResult = await db.query(
       'SELECT id, email, name FROM users WHERE id = $1',
       [session.user_id]
@@ -65,7 +68,13 @@ const authenticate = async (req, res, next) => {
     next();
   } catch (err) {
     console.error(err);
-    res.status(401).json({ error: 'Invalid token' });
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+    res.status(401).json({ error: 'Authentication failed' });
   }
 };
 
@@ -408,18 +417,19 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
-    // Create a token
+    // Create a token with UUID as userId
     const token = jwt.sign(
-      { userId: user.id }, 
-      process.env.JWT_SECRET, 
+      { userId: user.id }, // Make sure we're using the UUID here
+      process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN }
     );
     
+    // Calculate expiration date
     const expiration = new Date();
-    const days = parseInt(process.env.JWT_EXPIRES_IN);
-    expiration.setDate(expiration.getDate() + days);
+    const daysToAdd = parseInt(process.env.JWT_EXPIRES_IN);
+    expiration.setDate(expiration.getDate() + (isNaN(daysToAdd) ? 7 : daysToAdd)); // Default to 7 days if parse fails
 
-    // Store token in database
+    // Store token in database with UUID user_id
     await db.query(
       'INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)',
       [user.id, token, expiration]
@@ -435,7 +445,7 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Server error during login. Please try again later.' });
   }
 });
 
@@ -567,13 +577,6 @@ app.get('/api/network-test', (req, res) => {
     timestamp: new Date(),
     clientIp: req.ip
   });
-});
-
-// Test endpoint for debugging registration
-app.post('/api/test-register', (req, res) => {
-  console.log('Test register endpoint reached');
-  console.log('Request body:', req.body);
-  return res.status(200).json({ success: true, message: 'Registration test successful' });
 });
 
 // Start server

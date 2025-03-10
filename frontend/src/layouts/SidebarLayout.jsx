@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import Sidebar from "../components/Sidebar";
-import { useState, useEffect } from "react";
+import { useState} from "react";
 import { useLocation } from 'react-router-dom';
 
 export default function SidebarLayout({ children }) {
@@ -9,19 +9,16 @@ export default function SidebarLayout({ children }) {
   const isGroceryPage = location.pathname === '/grocery';
 
   const toggleSidebar = () => {
-    setIsOpen(!isOpen);
+    setIsOpen(prev => !prev);
   };
 
   return (
-    <div className="absolute inset-0 flex flex-row app-bg overflow-x-hidden">
+    <div className="flex h-screen bg-background dark:bg-dark-background text-primary-dm">
       <Sidebar isOpen={isOpen} toggleSidebar={toggleSidebar} />
       
-      <div className="flex-1">
-        <div className={`
-          w-full p-4 md:p-8
-          ${isGroceryPage ? 'flex flex-col items-start' : 'flex justify-center items-center'}
-        `}>
-          <div className={`${isGroceryPage ? 'w-full' : 'w-full max-w-4xl'}`}>
+      <div className="flex-1 transition-all duration-300 ease-in-out overflow-y-auto overflow-x-hidden h-screen">
+        <div className="w-full mx-auto px-2 sm:px-4 py-8">
+          <div className={`${isGroceryPage ? 'max-w-2xl' : 'max-w-3xl'} mx-auto w-full`}>
             {children}
           </div>
         </div>

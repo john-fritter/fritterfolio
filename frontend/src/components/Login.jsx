@@ -11,7 +11,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   
   const navigate = useNavigate();
-  const { login, register, testRegistration } = useAuth();
+  const { login, register } = useAuth();
   
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -36,7 +36,8 @@ export default function Login() {
       sessionStorage.removeItem('loginRedirect');
       navigate(redirectPath);
     } catch (error) {
-      setError(error.message);
+      // Display the error message from the server or a default message
+      setError(error.message || 'An error occurred during authentication');
     } finally {
       setLoading(false);
     }
@@ -48,15 +49,15 @@ export default function Login() {
     setError(null);
     
     try {
-      console.log("Attempting login with email:", email);
-      const result = await login(email, password);
-      console.log("Login successful, token received:", !!result.token);
-      navigate(sessionStorage.getItem('loginRedirect') || '/');
+      await login(email, password);
     } catch (err) {
-      console.error("Login error:", err);
-      setError('Login failed. Please check your credentials.');
-    } finally {
-      setLoading(false);
+      // Set a user-friendly error message
+      if (err.message === 'Invalid credentials') {
+        setError('Invalid email or password. Please try again.');
+      } else {
+        setError('Login failed. Please check your credentials and try again.');
+      }
+      throw err; // Re-throw to prevent navigation
     }
   };
   
@@ -66,8 +67,12 @@ export default function Login() {
         {isRegistering ? 'Create an Account' : 'Login to Your Account'}
       </h1>
       
+      {/* Error Alert */}
       {error && (
-        <div className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded">
+        <div className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded flex items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
           {error}
         </div>
       )}
@@ -136,21 +141,6 @@ export default function Login() {
           </button>
         </div>
       </form>
-      
-      <button 
-        type="button" 
-        className="mt-2 w-full p-2 bg-blue-500 text-white rounded"
-        onClick={async () => {
-          try {
-            const result = await testRegistration();
-            alert(`Test result: ${result}`);
-          } catch (error) {
-            alert(`Test failed: ${error.message}`);
-          }
-        }}
-      >
-        Test Mobile Registration
-      </button>
     </div>
   );
 }

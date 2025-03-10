@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import * as api from '../services/api';
 import { useAuth } from '../context/useAuth';
 import { useNavigate } from 'react-router-dom';
+import PropTypes from 'prop-types';
 
 // Views enum
 const VIEWS = {
@@ -22,13 +23,14 @@ export default function Grocery() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingList, setEditingList] = useState(null);
   const [selectedItems, setSelectedItems] = useState([]);
-  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [showListSelection, setShowListSelection] = useState(false);
   // Add loading states
   const [listsLoading, setListsLoading] = useState(true);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [masterLoading, setMasterLoading] = useState(true);
   const inputRef = useRef(null);
+  const newItemInputRef = useRef(null);
+  const [notification, setNotification] = useState(null);
 
   // Move all function declarations before the effects that use them
   
@@ -152,6 +154,13 @@ export default function Grocery() {
   const handleInputFocus = (e) => {
     e.target.select();
   };
+
+  // Keep new item input focused when typing to prevent loss of focus
+  useEffect(() => {
+    if (newItemInputRef.current && document.activeElement !== newItemInputRef.current) {
+      newItemInputRef.current.focus();
+    }
+  }, [newItem]);
 
   // Check for mobile screen size
   useEffect(() => {
@@ -304,83 +313,6 @@ export default function Grocery() {
     }
   };
 
-  // Clear bought/completed items
-  const clearBoughtItems = async () => {
-    if (!window.confirm('Are you sure you want to remove all completed items?')) {
-      return;
-    }
-    
-    try {
-      const items = view === VIEWS.LIST ? currentList.items : masterList.items;
-      const completedItems = items.filter(item => item.completed);
-      
-      // Delete each completed item
-      for (const item of completedItems) {
-        if (view === VIEWS.LIST) {
-          await api.deleteGroceryItem(item.id);
-        } else if (view === VIEWS.MASTER) {
-          await api.deleteMasterListItem(item.id);
-        }
-      }
-      
-      // Update state
-      if (view === VIEWS.LIST) {
-        setCurrentList(prev => ({
-          ...prev,
-          items: prev.items.filter(item => !item.completed)
-        }));
-      } else if (view === VIEWS.MASTER) {
-        setMasterList(prev => ({
-          ...prev,
-          items: prev.items.filter(item => !item.completed)
-        }));
-      }
-    } catch (error) {
-      console.error("Error clearing bought items:", error);
-    }
-  };
-
-  // Function to add selected items to another list
-  const addSelectedItemsToList = async (targetListId) => {
-    if (!targetListId || selectedItems.length === 0) return;
-    
-    try {
-      const itemsToAdd = selectedItems.map(index => masterList.items[index]);
-      
-      // Add each selected item to the target list
-      for (const item of itemsToAdd) {
-        await api.addGroceryItem(targetListId, item.name);
-      }
-      
-      // Update the target list if it's the current list
-      if (currentList && currentList.id === targetListId) {
-        fetchListItems(targetListId);
-      }
-      
-      // Reset selection
-      setSelectedItems([]);
-      setIsMultiSelectMode(false);
-      setShowListSelection(false);
-    } catch (error) {
-      console.error("Error adding items to list:", error);
-    }
-  };
-
-  // Toggle multi-select mode
-  const toggleMultiSelectMode = () => {
-    setIsMultiSelectMode(!isMultiSelectMode);
-    setSelectedItems([]);
-  };
-
-  // Toggle item selection
-  const toggleItemSelection = (index) => {
-    if (selectedItems.includes(index)) {
-      setSelectedItems(selectedItems.filter(i => i !== index));
-    } else {
-      setSelectedItems([...selectedItems, index]);
-    }
-  };
-
   // Delete an item from the current list
   const deleteItem = async (itemId, index) => {
     try {
@@ -472,25 +404,6 @@ export default function Grocery() {
     setView(VIEWS.LIST); // This explicitly changes the view
   };
 
-  // Add this function to clear the master list
-  const clearMasterList = async () => {
-    if (!user || !window.confirm('Are you sure you want to clear all items from the master list?')) {
-      return;
-    }
-    
-    try {
-      // Call the API to clear the master list
-      await api.clearMasterList(user.id);
-      
-      // Update the state to reflect the cleared list
-      setMasterList(prev => ({ ...prev, items: [] }));
-      
-      console.log("Master list cleared successfully");
-    } catch (error) {
-      console.error("Error clearing master list:", error);
-    }
-  };
-
   // Make the spinner more visible with a cleaner style
   const LoadingSpinner = () => (
     <div className="flex justify-center items-center py-10">
@@ -498,170 +411,465 @@ export default function Grocery() {
     </div>
   );
 
-  // Render function for the unified layout
-  return (
-    <div className="w-full h-full bg-background dark:bg-dark-background p-4">
-      {/* Header with title and menu */}
-      <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-200 dark:border-gray-700">
-        <h1 className="text-2xl md:text-3xl font-bold text-primary-dm">
-          {view === VIEWS.LIST && currentList ? currentList.name : 
-           view === VIEWS.MASTER ? 'Master List' : 'My Grocery Lists'}
-        </h1>
-        
-        {/* Menu Button */}
-        <div className="relative">
+  // Add selected items from master list to current list
+  const addSelectedItemsToCurrentList = async () => {
+    if (!currentList || !masterList.items) return;
+    
+    try {
+      // Get all completed/selected items from master list
+      const selectedMasterItems = masterList.items.filter((item, index) => 
+        selectedItems.includes(index) || item.completed
+      );
+      
+      if (selectedMasterItems.length === 0) {
+        setNotification({
+          message: "No items selected to add",
+          type: "warning"
+        });
+      return;
+    }
+    
+      // Add these items to the current list
+      for (const item of selectedMasterItems) {
+        const nameToAdd = typeof item.name === 'object' ? item.name.name : item.name;
+        await api.addGroceryItem(currentList.id, nameToAdd);
+      }
+      
+      // Refresh current list items
+      await fetchListItems(currentList.id);
+      
+      // Success notification
+      setNotification({
+        message: `${selectedMasterItems.length} item(s) added to ${currentList.name}`,
+        type: "success"
+      });
+      
+      // Clear selections/completed states
+      const updatedMasterItems = [...masterList.items];
+      for (let i = 0; i < updatedMasterItems.length; i++) {
+        if (selectedItems.includes(i) || updatedMasterItems[i].completed) {
+          // Update item in database
+          await api.updateMasterListItem(updatedMasterItems[i].id, { completed: false });
+          // Update local state
+          updatedMasterItems[i] = { ...updatedMasterItems[i], completed: false };
+        }
+      }
+      
+      // Update master list state
+      setMasterList({
+        ...masterList,
+        items: updatedMasterItems
+      });
+      
+      // Clear selected items
+      setSelectedItems([]);
+      
+    } catch (error) {
+      console.error("Error adding items to current list:", error);
+      setNotification({
+        message: "Failed to add items to list",
+        type: "error"
+      });
+    }
+  };
+
+  // Toggle all items selection/completion
+  const toggleAllItems = (checked) => {
+    if (view === VIEWS.MASTER) {
+      const allIndices = checked 
+        ? masterList.items.map((_, index) => index) 
+        : [];
+      setSelectedItems(allIndices);
+      
+      // Also mark all as complete/incomplete
+      const updatedItems = masterList.items.map(item => ({
+        ...item,
+        completed: checked
+      }));
+      
+      // Update in database (can be optimized to batch update)
+      updatedItems.forEach(async (item) => {
+        try {
+          await api.updateMasterListItem(item.id, { completed: checked });
+        } catch (error) {
+          console.error("Error updating item:", error);
+        }
+      });
+      
+      setMasterList({
+        ...masterList,
+        items: updatedItems
+      });
+    } else if (view === VIEWS.LIST && currentList) {
+      const updatedItems = currentList.items.map(item => ({
+        ...item,
+        completed: checked
+      }));
+      
+      // Update in database (can be optimized to batch update)
+      updatedItems.forEach(async (item) => {
+        try {
+          await api.updateGroceryItem(item.id, { completed: checked });
+    } catch (error) {
+          console.error("Error updating item:", error);
+        }
+      });
+      
+      setCurrentList({
+        ...currentList,
+        items: updatedItems
+      });
+    }
+  };
+
+  // Notification component
+  const Notification = ({ message, type, onClose }) => {
+    const bgColor = type === 'success' ? 'bg-green-500' : 
+                    type === 'error' ? 'bg-red-500' : 'bg-yellow-500';
+    
+    useEffect(() => {
+      const timer = setTimeout(() => {
+        onClose();
+      }, 3000);
+      
+      return () => clearTimeout(timer);
+    }, [onClose]);
+    
+    return (
+      <div className={`fixed top-4 right-4 px-4 py-3 rounded-md text-white ${bgColor} shadow-lg z-50 flex items-center`}>
+        <span>{message}</span>
           <button 
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+          onClick={onClose}
+          className="ml-3 text-white hover:text-gray-200"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
           </button>
-          
-          {/* Dropdown Menu - unified for all views */}
-          {menuOpen && (
-            <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white dark:bg-dark-background ring-1 ring-black ring-opacity-5 z-10">
-              <div className="py-1">
-                {/* Always show these navigation options */}
-                <button 
-                  onClick={() => { 
-                    if (currentList) setView(VIEWS.LIST); 
-                    setMenuOpen(false); 
-                  }}
-                  className={`w-full text-left px-4 py-2 text-sm ${!currentList ? 'text-gray-400' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-                  disabled={!currentList}
-                >
-                  Current List
-                </button>
-                <button 
-                  onClick={() => { setView(VIEWS.LISTS); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  All Lists
-                </button>
-                <button 
-                  onClick={() => { setView(VIEWS.MASTER); setMenuOpen(false); }}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  Master List
-                </button>
-                
-                <div className="border-t my-1"></div>
-                
-                {/* View-specific options */}
-                {view === VIEWS.MASTER && (
-                  <>
+      </div>
+    );
+  };
+
+  // Define PropTypes for Notification
+  Notification.propTypes = {
+    message: PropTypes.string.isRequired,
+    type: PropTypes.string.isRequired,
+    onClose: PropTypes.func.isRequired
+  };
+
+  // Define unified row layout component with PropTypes
+  const ListRow = ({ leftElement, text, rightElements, onClick, hover = true }) => (
+    <div 
+      className={`flex items-center min-w-0 px-3 sm:px-4 py-3 gap-2 sm:gap-3 ${hover ? 'hover:bg-gray-50 dark:hover:bg-gray-800/30' : ''} ${onClick ? 'cursor-pointer' : ''}`}
+      onClick={onClick}
+    >
+      <div className="w-6 flex-shrink-0">
+        {leftElement}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        {text}
+      </div>
+
+      <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0 pr-2 sm:pr-4">
+        {rightElements}
+      </div>
+    </div>
+  );
+
+  // Define PropTypes for ListRow
+  ListRow.propTypes = {
+    leftElement: PropTypes.node,
+    text: PropTypes.node.isRequired,
+    rightElements: PropTypes.node,
+    onClick: PropTypes.func,
+    hover: PropTypes.bool
+  };
+
+  // Define a standard button component with PropTypes
+  const ActionButton = ({ icon, onClick, color = 'primary', iconColor }) => (
                     <button 
-                      onClick={() => { 
-                        toggleMultiSelectMode(); 
-                        setMenuOpen(false); 
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-                    >
-                      {isMultiSelectMode ? "Cancel Selection" : "Select Items"}
+      onClick={onClick}
+      className={`text-secondary-dm p-1 rounded hover:text-${color}-dm flex-shrink-0 h-8 w-8 flex items-center justify-center`}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${iconColor}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        {icon}
+      </svg>
                     </button>
-                    
-                    {isMultiSelectMode && selectedItems.length > 0 && (
-                      <button 
-                        onClick={() => { 
-                          setShowListSelection(true);
-                          setMenuOpen(false); 
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-                      >
-                        Add Selected to List
-                      </button>
-                    )}
-                    
+  );
+
+  // Define PropTypes for ActionButton
+  ActionButton.propTypes = {
+    icon: PropTypes.node.isRequired,
+    onClick: PropTypes.func,
+    color: PropTypes.string,
+    iconColor: PropTypes.string
+  };
+
+  // Function to delete selected items - fixed version
+  const deleteSelectedItems = async () => {
+    let itemsToDelete = [];
+    
+    // Figure out which items to delete
+    if (selectedItems.length === 0) {
+      // If we're not in multi-select mode, get completed items
+      itemsToDelete = view === VIEWS.LIST && currentList ? 
+        currentList.items
+          .map((item, index) => item.completed ? { item, index } : null)
+          .filter(item => item !== null) :
+        view === VIEWS.MASTER ?
+          masterList.items
+            .map((item, index) => item.completed ? { item, index } : null)
+            .filter(item => item !== null) :
+          [];
+    } else {
+      // We have explicitly selected items - get their details
+      itemsToDelete = view === VIEWS.LIST && currentList ?
+        selectedItems.map(index => ({ item: currentList.items[index], index })) :
+        view === VIEWS.MASTER ?
+          selectedItems.map(index => ({ item: masterList.items[index], index })) :
+          [];
+    }
+    
+    // Check if we have any items to delete
+    if (itemsToDelete.length === 0) {
+      setNotification({
+        message: "No items selected to delete",
+        type: "warning"
+      });
+      return;
+    }
+    
+    // Confirm deletion
+    if (!window.confirm(`Are you sure you want to delete ${itemsToDelete.length} selected item(s)?`)) {
+      return;
+    }
+    
+    try {
+      // IMPORTANT: Clear selection state BEFORE starting deletion to avoid selection bugs
+      setSelectedItems([]);
+      
+      // Delete items based on current view - using item IDs instead of indices
+      if (view === VIEWS.LIST && currentList) {
+        for (const { item } of itemsToDelete) {
+          if (item && item.id) {
+            await api.deleteGroceryItem(item.id);
+          }
+        }
+        await fetchListItems(currentList.id);
+      } else if (view === VIEWS.MASTER) {
+        for (const { item } of itemsToDelete) {
+          if (item && item.id) {
+            await api.deleteMasterListItem(item.id);
+          }
+        }
+        await fetchMasterList();
+      }
+      
+      // Show success notification
+      setNotification({
+        message: `${itemsToDelete.length} item(s) deleted`,
+        type: "success"
+      });
+      
+    } catch (error) {
+      console.error("Error deleting items:", error);
+      setNotification({
+        message: "Failed to delete items",
+        type: "error"
+      });
+    }
+  };
+
+  // Define updated menu items with the requested structure
+  const menuItems = [
+    // First two navigation items (the views that aren't current)
+    { 
+      label: "Lists View",
+      action: () => setView(VIEWS.LISTS),
+      show: view !== VIEWS.LISTS
+    },
+    { 
+      label: "Master List",
+      action: () => {
+        fetchMasterList();
+        setView(VIEWS.MASTER);
+      },
+      show: view !== VIEWS.MASTER
+    },
+    { 
+      label: currentList ? `View ${currentList.name}` : "Current List",
+      action: () => {
+        if (currentList) {
+          fetchListItems(currentList.id);
+          setView(VIEWS.LIST);
+        }
+      },
+      show: view !== VIEWS.LIST && currentList !== null
+    },
+    // Add Selected to Current List (only in Master view)
+    { 
+      label: "Add Selected to Current List", 
+      action: addSelectedItemsToCurrentList,
+      show: view === VIEWS.MASTER && currentList !== null 
+    },
+    // Delete Selected (only show when not in Lists view)
+    {
+      label: "Delete Selected",
+      action: deleteSelectedItems,
+      show: view !== VIEWS.LISTS
+    }
+  ];
+
+  // Add this function near the top of your component (with your other helper functions)
+  const addSelectedItemsToList = async (targetListId) => {
+    if (!targetListId || selectedItems.length === 0) return;
+    try {
+      // Get the selected items from the master list (using their indices)
+      const itemsToAdd = selectedItems.map(index => masterList.items[index]);
+      
+      // Add each selected item to the target list
+      for (const item of itemsToAdd) {
+        const nameToAdd = typeof item.name === 'object' ? item.name.name : item.name;
+        await api.addGroceryItem(targetListId, nameToAdd);
+      }
+      
+      // If the target list is the current one, refresh its items
+      if (currentList && currentList.id === targetListId) {
+        await fetchListItems(targetListId);
+      }
+      
+      setSelectedItems([]);
+      setNotification({ message: `${itemsToAdd.length} item(s) added to list`, type: "success" });
+    } catch (error) {
+      console.error("Error adding selected items to list:", error);
+      setNotification({ message: "Failed to add selected items", type: "error" });
+    }
+  };
+
+  // Render function for the unified layout
+  return (
+    <div className="pr-6 md:pr-0 max-w-[calc(100%-24px)] md:max-w-full mx-auto">
+      {notification && (
+        <Notification 
+          message={notification.message} 
+          type={notification.type} 
+          onClose={() => setNotification(null)} 
+        />
+      )}
+
+      {/* Main container with proper spacing and max-width */}
+      <div className="w-full max-w-3xl mx-auto px-2 sm:px-4 flex flex-col h-full min-w-0">
+        {/* Header - now inside the container */}
+        <ListRow
+          leftElement={
+            ((view === VIEWS.LIST && currentList?.items?.length > 0) ||
+             (view === VIEWS.MASTER && masterList?.items?.length > 0)) ? (
+              <input
+                type="checkbox"
+                checked={
+                  view === VIEWS.LIST 
+                    ? currentList.items.every(item => item.completed)
+                    : view === VIEWS.MASTER 
+                      ? masterList.items.every(item => item.completed)
+                      : false
+                }
+                onChange={(e) => toggleAllItems(e.target.checked)}
+                className="h-6 w-6 text-primary border-gray-300 rounded focus:ring-primary"
+              />
+            ) : null
+          }
+          text={
+            <h1 className="text-2xl font-bold text-secondary-dm">
+              {view === VIEWS.LIST && currentList ? currentList.name : 
+               view === VIEWS.MASTER ? 'Master List' : 'My Grocery Lists'}
+            </h1>
+          }
+          rightElements={
+            <div className="relative">
+              <ActionButton
+                icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />}
+                onClick={() => setMenuOpen(!menuOpen)}
+                iconColor="text-blue-500"
+              />
+              {/* Dropdown Menu using menuItems */}
+              {menuOpen && (
+                <div className="absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white dark:bg-dark-background ring-1 ring-black ring-opacity-5 z-10">
+                  <div className="py-1" role="menu" aria-orientation="vertical">
+                    {menuItems
+                      .filter(item => item.show)
+                      .map((item, index) => (
                     <button 
+                          key={index}
                       onClick={() => {
-                        clearMasterList();
+                            item.action();
                         setMenuOpen(false);
                       }}
-                      className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          className="w-full text-left px-4 py-2 text-sm text-secondary-dm hover:bg-gray-100 dark:hover:bg-gray-800/40"
+                          role="menuitem"
                     >
-                      Clear Master List
+                          {item.label}
                     </button>
-                  </>
-                )}
-                
-                {view === VIEWS.LIST && currentList && (
-                  <>
-                    <button 
-                      onClick={() => {
-                        clearBoughtItems();
-                        setMenuOpen(false);
-                      }}
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-                    >
-                      Clear Bought Items
-                    </button>
-                   </>
-                )}
+                      ))}
               </div>
             </div>
           )}
         </div>
-      </div>
+          }
+        />
       
-      {/* List of grocery lists view */}
+        {/* Scrollable content area - now inside the container */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden">
+          {/* Lists view */}
       {view === VIEWS.LISTS && (
-        <div className="divide-y divide-gray-200 dark:divide-gray-700">
+            <div>
           {listsLoading ? (
             <LoadingSpinner />
-          ) : groceryLists.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-secondary-dm mb-4">You don&apos;t have any grocery lists yet.</p>
-            </div>
-          ) : (
+                ) : groceryLists.length > 0 ? (
             groceryLists.map(list => (
-              <div 
+                  <ListRow
                 key={list.id}
-                className="py-4 flex items-center justify-between group"
-                onClick={() => selectList(list)}
-              >
-                <div className="flex-1">
-                  <h2 className="text-xl font-medium text-primary-dm">{list.name}</h2>
-                  <p className="text-sm text-secondary-dm mt-1">
-                    {Array.isArray(list.items) 
-                      ? `${list.items.length} items • ${list.items.filter(i => i.completed).length} completed` 
-                      : "0 items"
-                    }
-                  </p>
+                    text={
+                      <div className="flex items-center">
+                        <span className="text-secondary-dm">{list.name}</span>
+                        <span className="ml-2 text-sm text-secondary-dm opacity-75">
+                          {Array.isArray(list.items) ? `${list.items.length} items` : "0 items"}
+                        </span>
                 </div>
-                
-                <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
+                    }
+                    rightElements={<>
+                      <ActionButton 
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
                     onClick={(e) => {
                       e.stopPropagation();
                       startEditingList(list);
                     }}
-                    className="text-primary p-1 rounded hover:bg-primary/10"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                  <button
+                      />
+                      <ActionButton 
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
                     onClick={(e) => {
                       e.stopPropagation();
                       deleteList(list.id);
                     }}
-                    className="text-red-500 p-1 rounded hover:bg-red-50"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-          
-          {/* Add new list form - styled like a list item */}
-          <div className="py-4">
-            <form onSubmit={createNewList} className="flex items-center space-x-3">
+                        color="accent"
+                        iconColor="text-red-500"
+                      />
+                    </>}
+                    onClick={() => selectList(list)}
+                  />
+                ))
+                ) : (
+                  <div className="py-6 text-center text-secondary-dm">
+                    You don&apos;t have any grocery lists yet. Create your first list below.
+                  </div>
+                )}
+                
+                {/* Add new list form - also using ListRow */}
+                <form onSubmit={createNewList}>
+                  <ListRow
+                    hover={false}
+                    leftElement={<div className="h-6 w-6" />}
+                    text={
               <input
                 ref={inputRef}
                 type="text"
@@ -669,137 +877,129 @@ export default function Grocery() {
                 value={newListName}
                 onChange={(e) => setNewListName(e.target.value)}
                 onFocus={handleInputFocus}
-                className="flex-1 p-2 bg-transparent border-b border-gray-200 dark:border-gray-700 focus:outline-none focus:border-primary"
-              />
-              
-              <button 
-                type="submit"
-                className="text-green-500 p-1 rounded hover:bg-green-50"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
+                        className="w-full py-2 bg-transparent text-lg text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
+                      />
+                    }
+                    rightElements={
+                      <ActionButton
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          createNewList(e);
+                        }}
+                        iconColor="text-green-500"
+                      />
+                    }
+                  />
             </form>
-          </div>
         </div>
       )}
       
-      {/* List view or Master list view - maintained existing code for these views */}
+          {/* List view or Master list view */}
       {(view === VIEWS.LIST || view === VIEWS.MASTER) && (
-        <div className="divide-y divide-gray-200 dark:divide-gray-700">
+            <div>
           {/* Items list */}
-          {itemsLoading ? (
+                {itemsLoading || masterLoading ? (
             <LoadingSpinner />
           ) : view === VIEWS.LIST && currentList ? (
             currentList.items && currentList.items.length > 0 ? (
               currentList.items.map((item, index) => (
-                <div 
+                      <ListRow
                   key={index}
-                  className="py-3 flex items-center space-x-3"
-                >
+                        leftElement={
                   <input
                     type="checkbox"
                     checked={item.completed}
                     onChange={() => toggleItem(index)}
-                    className="h-5 w-5"
-                  />
-                  
-                  <span 
-                    className={`flex-1 ${item.completed ? 'line-through text-gray-400' : 'text-secondary-dm'}`}
-                  >
+                            className="h-6 w-6 text-primary border-gray-300 rounded focus:ring-primary flex-shrink-0"
+                          />
+                        }
+                        text={
+                          <span className={item.completed ? 'text-secondary-dm' : 'text-secondary-dm'}>
                     {item.name}
                   </span>
-                  
-                  <button
+                        }
+                        rightElements={
+                          <ActionButton 
+                            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
                     onClick={() => deleteItem(item.id, index)}
-                    className="text-red-500 p-1 rounded hover:bg-red-50"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
-                </div>
+                            color="accent"
+                            iconColor="text-red-500"
+                          />
+                        }
+                      />
               ))
             ) : (
-              <div className="py-4 text-center text-secondary-dm">
+                    <div className="py-4 px-4 text-center text-xl text-secondary-dm">
                 No items in this list yet. Add your first item below.
               </div>
             )
           ) : view === VIEWS.MASTER && (
-            masterLoading ? (
-              <LoadingSpinner />
-            ) : (
               masterList.items && masterList.items.length > 0 ? (
                 masterList.items.map((item, index) => (
-                  <div 
+                      <ListRow
                     key={index}
-                    className="py-3 flex items-center space-x-3"
-                  >
-                    {/* Checkbox for multi-select or completion */}
-                    {isMultiSelectMode ? (
-                      <input
-                        type="checkbox"
-                        checked={selectedItems.includes(index)}
-                        onChange={() => toggleItemSelection(index)}
-                        className="h-5 w-5"
-                      />
-                    ) : (
+                        leftElement={
                       <input
                         type="checkbox"
                         checked={item.completed}
                         onChange={() => toggleItem(index)}
-                        className="h-5 w-5"
-                      />
-                    )}
-                    
-                    <span 
-                      className={`flex-1 ${item.completed && !isMultiSelectMode ? 'line-through text-gray-400' : 'text-secondary-dm'}`}
-                    >
+                            className="h-6 w-6 text-primary border-gray-300 rounded focus:ring-primary flex-shrink-0"
+                          />
+                        }
+                        text={
+                          <span className={item.completed ? 'text-secondary-dm' : 'text-secondary-dm'}>
                       {item.name}
                     </span>
-                    
-                    <button
+                        }
+                        rightElements={
+                          <ActionButton 
+                            icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
                       onClick={() => deleteMasterItem(item.id, index)}
-                      className="text-red-500 p-1 rounded hover:bg-red-50"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  </div>
+                            color="accent"
+                            iconColor="text-red-500"
+                          />
+                        }
+                      />
                 ))
               ) : (
-                <div className="py-4 text-center text-secondary-dm">
+                    <div className="py-4 px-4 text-center text-xl text-secondary-dm">
                   Your master list is empty. Items you add to any list will appear here.
                 </div>
-              )
             )
           )}
           
           {/* Add item form */}
-          <div className="py-3">
-            <form onSubmit={addItem} className="flex items-center space-x-3">
+                <form onSubmit={addItem}>
+                  <ListRow
+                    hover={false}
+                    leftElement={<div className="h-6 w-6" />}
+                    text={
               <input
+                ref={newItemInputRef}
                 type="text"
                 placeholder="Add new item..."
                 value={newItem}
                 onChange={(e) => setNewItem(e.target.value)}
-                className="flex-1 p-2 bg-transparent border-b border-gray-200 dark:border-gray-700 focus:outline-none focus:border-primary"
+                className="w-full py-2 bg-transparent text-lg text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
               />
-              
-              <button 
-                type="submit"
-                className="text-green-500 p-1 rounded hover:bg-green-50"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
+                    }
+                    rightElements={
+                      <ActionButton
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          addItem(e);
+                        }}
+                        iconColor="text-green-500"
+                      />
+                    }
+                  />
             </form>
-          </div>
         </div>
       )}
+        </div>
+      </div>
       
       {/* List editing modal */}
       {editingList && (
@@ -868,7 +1068,6 @@ export default function Grocery() {
                 onClick={() => {
                   setShowListSelection(false);
                   setSelectedItems([]);
-                  setIsMultiSelectMode(false);
                 }}
               >
                 Cancel
