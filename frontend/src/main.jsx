@@ -4,36 +4,45 @@ import React from 'react'; // Add React import
 import ReactDOM from "react-dom/client";
 import Root from "./Root";
 
-// Add theme preference detection without forcing light mode
-(function() {
-  // Check if user has a saved preference
-  const savedMode = localStorage.getItem('mode');
-  
-  // If no preference is saved, default to auto (system preference)
-  if (!savedMode) {
-    localStorage.setItem('mode', 'auto');
-    
-    // In auto mode, check system preference
-    const prefersDark = window.matchMedia && 
-      window.matchMedia('(prefers-color-scheme: dark)').matches;
-    
-    // Apply appropriate class based on system preference
-    document.documentElement.classList.remove('dark', 'light');
-    document.documentElement.classList.add(prefersDark ? 'dark' : 'light');
-  } else {
-    // Apply saved preference (dark, light, or auto)
-    if (savedMode === 'auto') {
-      const prefersDark = window.matchMedia && 
-        window.matchMedia('(prefers-color-scheme: dark)').matches;
-      
-      document.documentElement.classList.remove('dark', 'light');
-      document.documentElement.classList.add(prefersDark ? 'dark' : 'light');
-    } else {
-      document.documentElement.classList.remove('dark', 'light');
-      document.documentElement.classList.add(savedMode);
-    }
+// Enhanced global styles with better scrollbar control
+const style = document.createElement('style');
+style.textContent = `
+  html, body, #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
   }
-})();
+  
+  body {
+    transition: background-color 0.3s ease;
+  }
+
+  /* Ensure all pages use the same scrollbar styling */
+  .overflow-y-auto {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  }
+  
+  .overflow-y-auto::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .overflow-y-auto::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .overflow-y-auto::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 20px;
+  }
+
+  html.dark .overflow-y-auto::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+`;
+document.head.appendChild(style);
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>

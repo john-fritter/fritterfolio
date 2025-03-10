@@ -1,4 +1,4 @@
-import { useAuth } from '../context/useAuth';
+import { useAuth } from '../hooks/auth';
 import { getAuthToken } from '../services/auth';
 import { API_URL } from '../services/api';
 

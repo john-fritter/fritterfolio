@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { API_URL } from '../services/api';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme } from '../hooks/theme';
 
 export default function NetworkTest() {
   const [status, setStatus] = useState('Testing...');

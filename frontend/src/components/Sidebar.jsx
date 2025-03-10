@@ -1,8 +1,8 @@
 import PropTypes from 'prop-types';
 import { NavLink, useNavigate } from "react-router-dom";
-import { useTheme } from "../context/ThemeContext";
+import { useTheme } from "../hooks/theme";
 import { useState } from 'react';
-import { useAuth } from '../context/useAuth';
+import { useAuth } from '../hooks/auth';
 
 export default function Sidebar({ isOpen, toggleSidebar }) {
   const { mode, cycleMode } = useTheme();
@@ -78,10 +78,9 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
           md:translate-x-0 md:static md:z-0 md:h-screen
           opacity-100
           h-[100%] flex flex-col justify-between
-          shadow-none border-none
+          shadow-md md:shadow-none border-r border-gray-200 dark:border-gray-800
           overflow-hidden
         `}
-        style={{ boxShadow: 'none' }}
       >
         {/* Main Content with selective overflow */}
         <div className="flex-1 p-4 overflow-y-auto mb-16 md:mb-0">
@@ -107,7 +106,7 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
         </div>
         
         {/* Bottom Controls */}
-        <div className="py-3 px-3 mb-2 md:mb-4 bg-background dark:bg-dark-background border-t border-gray-200 dark:border-gray-700">
+        <div className="py-3 px-3 mb-2 md:mb-4 bg-background dark:bg-dark-background border-t border-gray-200 dark:border-gray-800">
           <div className="flex items-center justify-between">
             {/* Auth Button */}
             <div className="relative group">
@@ -170,7 +169,7 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
       {/* Hamburger Button */}
       {!isOpen && (
         <button
-          className="fixed bottom-4 left-4 z-[60] md:hidden border-none outline-none bg-transparent"
+          className="fixed bottom-4 left-4 z-[60] md:hidden bg-background dark:bg-dark-background p-2 rounded-full shadow-md"
           onClick={toggleSidebar}
         >
           <img src="/assets/android-chrome-192x192.png" alt="Menu" className="h-8 w-8 object-contain" />
@@ -188,7 +187,7 @@ export default function Sidebar({ isOpen, toggleSidebar }) {
       {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="app-bg rounded-lg shadow-lg p-6 max-w-sm mx-auto">
+          <div className="bg-background dark:bg-dark-background rounded-lg shadow-lg p-6 max-w-sm mx-auto">
             <h3 className="text-lg font-medium text-secondary-dm mb-4">Confirm Logout</h3>
             <p className="text-secondary-dm mb-6">Are you sure you want to log out?</p>
             <div className="flex justify-end space-x-3">
