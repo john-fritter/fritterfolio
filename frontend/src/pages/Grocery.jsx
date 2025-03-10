@@ -57,8 +57,6 @@ export default function Grocery() {
   const {
     masterList,
     masterLoading,
-    selectedItems,
-    setSelectedItems,
     fetchMasterList,
     addToMasterList,
     deleteMasterItem,
@@ -124,9 +122,35 @@ export default function Grocery() {
     
     try {
       if (view === VIEWS.LIST && currentList) {
+        // Check for duplicates case-insensitively
+        const isDuplicate = items.some(item => 
+          item.name.toLowerCase() === newItem.trim().toLowerCase()
+        );
+        
+        if (isDuplicate) {
+          setNotification({
+            message: "This item is already in your list",
+            type: "warning"
+          });
+          return;
+        }
+        
         await addItem(newItem);
         await addToMasterList(newItem);
       } else if (view === VIEWS.MASTER) {
+        // Check for duplicates in master list
+        const isDuplicate = masterList.items.some(item => 
+          item.name.toLowerCase() === newItem.trim().toLowerCase()
+        );
+        
+        if (isDuplicate) {
+          setNotification({
+            message: "This item is already in your master list",
+            type: "warning"
+          });
+          return;
+        }
+        
         await addToMasterList(newItem);
       }
       setNewItem('');
@@ -143,28 +167,56 @@ export default function Grocery() {
     if (!currentList) return;
 
     try {
-      const selectedMasterItems = masterList.items.filter((item, i) => 
-        selectedItems.includes(i)
-      );
+      const selectedMasterItems = masterList.items.filter(item => item.completed);
       
       if (selectedMasterItems.length === 0) {
         setNotification({
           message: "No items selected to add",
           type: "warning"
         });
-      return;
-    }
-    
-      for (const item of selectedMasterItems) {
-        await addItem(item.name);
+        return;
       }
       
-      setNotification({
-        message: `${selectedMasterItems.length} item(s) added to ${currentList.name}`,
-        type: "success"
-      });
+      // Track duplicates and added items
+      const duplicates = [];
+      const addedItems = [];
       
-      setSelectedItems([]);
+      for (const item of selectedMasterItems) {
+        // Check for duplicates case-insensitively
+        const isDuplicate = items.some(existingItem => 
+          existingItem.name.toLowerCase() === item.name.toLowerCase()
+        );
+        
+        if (isDuplicate) {
+          duplicates.push(item.name);
+        } else {
+          await addItem(item.name);
+          addedItems.push(item.name);
+        }
+      }
+      
+      // Create appropriate notification message
+      if (addedItems.length > 0) {
+        let message = `${addedItems.length} item(s) added to ${currentList.name}`;
+        if (duplicates.length > 0) {
+          message += `. ${duplicates.length} item(s) skipped (already in list)`;
+        }
+        setNotification({
+          message,
+          type: "success"
+        });
+      } else if (duplicates.length > 0) {
+        setNotification({
+          message: "All selected items are already in your list",
+          type: "warning"
+        });
+      }
+      
+      // Uncheck the items after attempting to add them
+      for (const item of selectedMasterItems) {
+        await toggleMasterItem(item.id, false);
+      }
+      
       await fetchItems(currentList.id);
     } catch {
       setNotification({
@@ -174,7 +226,60 @@ export default function Grocery() {
     }
   };
 
-  // Define menu items
+  // Add handlers for deleting selected items
+  const handleDeleteSelected = async () => {
+    if (view === VIEWS.LIST && currentList) {
+      const selectedItems = items.filter(item => item.completed);
+      if (selectedItems.length === 0) {
+        setNotification({
+          message: "No items selected to delete",
+          type: "warning"
+        });
+        return;
+      }
+      
+      try {
+        for (const item of selectedItems) {
+          await deleteItem(item.id);
+        }
+        setNotification({
+          message: `${selectedItems.length} item(s) deleted`,
+          type: "success"
+        });
+      } catch {
+        setNotification({
+          message: "Failed to delete items",
+          type: "error"
+        });
+      }
+    } else if (view === VIEWS.MASTER) {
+      const selectedItems = masterList.items.filter(item => item.completed);
+      if (selectedItems.length === 0) {
+        setNotification({
+          message: "No items selected to delete",
+          type: "warning"
+        });
+        return;
+      }
+      
+      try {
+        for (const item of selectedItems) {
+          await deleteMasterItem(item.id);
+        }
+        setNotification({
+          message: `${selectedItems.length} item(s) deleted from master list`,
+          type: "success"
+        });
+      } catch {
+        setNotification({
+          message: "Failed to delete items",
+          type: "error"
+        });
+      }
+    }
+  };
+
+  // Update menuItems array to include delete selected option
   const menuItems = [
     { 
       label: "Lists View",
@@ -203,6 +308,12 @@ export default function Grocery() {
       label: "Add Selected to Current List", 
       action: handleAddSelectedToList,
       show: view === VIEWS.MASTER && currentList !== null 
+    },
+    {
+      label: "Delete Selected Items",
+      action: handleDeleteSelected,
+      show: (view === VIEWS.LIST && items?.some(item => item.completed)) || 
+            (view === VIEWS.MASTER && masterList?.items?.some(item => item.completed))
     }
   ];
 
@@ -289,8 +400,8 @@ export default function Grocery() {
                 key={list.id}
                     text={
                       <div className="flex items-center">
-                        <span className="text-secondary-dm">{list.name}</span>
-                        <span className="ml-2 text-sm text-secondary-dm opacity-75">
+                        <span className="text-lg text-secondary-dm">{list.name}</span>
+                        <span className="ml-2 text-xs text-secondary-dm opacity-75">
                           {(() => {
                             const itemCount = Array.isArray(list.items) ? list.items.length : 0;
                             return `${itemCount} items`;
@@ -339,8 +450,9 @@ export default function Grocery() {
                 placeholder="New list name..."
                 value={newListName}
                 onChange={(e) => setNewListName(e.target.value)}
-                        className="w-full py-2 bg-transparent text-lg text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
-                      />
+                style={{ fontFamily: 'inherit' }}
+                className="w-full py-2 bg-transparent text-lg font-light font-sans text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
+              />
                     }
                     rightElements={
                       <ActionButton
@@ -372,7 +484,7 @@ export default function Grocery() {
                           />
                         }
                         text={
-                        <span className={item.completed ? 'text-secondary-dm line-through' : 'text-secondary-dm'}>
+                        <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
                     {item.name}
                   </span>
                         }
@@ -405,7 +517,7 @@ export default function Grocery() {
                           />
                         }
                         text={
-                        <span className={item.completed ? 'text-secondary-dm line-through' : 'text-secondary-dm'}>
+                        <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
                       {item.name}
                     </span>
                         }
@@ -437,7 +549,8 @@ export default function Grocery() {
                 placeholder="Add new item..."
                 value={newItem}
                 onChange={(e) => setNewItem(e.target.value)}
-                className="w-full py-2 bg-transparent text-lg text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
+                style={{ fontFamily: 'inherit' }}
+                className="w-full py-2 bg-transparent text-lg font-light font-sans text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
               />
                     }
                     rightElements={
