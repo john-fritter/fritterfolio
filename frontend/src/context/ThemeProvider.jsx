@@ -19,39 +19,13 @@ export function ThemeProvider({ children }) {
     return 'auto';
   });
   
-  // State to track location
-  const [location, setLocation] = useState(null);
-  
-  // Get user's location when in auto mode
-  useEffect(() => {
-    if (mode === 'auto' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          setLocation({ latitude, longitude });
-        },
-        (error) => {
-          console.error('Error getting location:', error);
-          // Use system preference as fallback
-          const darkSystem = getSystemPreference();
-          setIsDark(darkSystem);
-        }
-      );
-    }
-  }, [mode]);
-  
   // Determine if dark mode should be applied
   const determineIfDark = useCallback(async (currentMode) => {
     if (currentMode === 'auto') {
-      if (location) {
-        return await isNighttime(location.latitude, location.longitude);
-      } else {
-        // Fallback to system preference if location not available
-        return getSystemPreference();
-      }
+      return await isNighttime();
     }
     return currentMode === 'dark';
-  }, [location]);
+  }, []);
   
   const [isDark, setIsDark] = useState(() => {
     // Initial state just uses system preference as a temporary value
@@ -88,11 +62,11 @@ export function ThemeProvider({ children }) {
     
     // If we're in auto mode, set up a timer to check sunrise/sunset
     // every hour to update theme appropriately
-    if (mode === 'auto' && location) {
+    if (mode === 'auto') {
       const intervalId = setInterval(updateTheme, 60 * 60 * 1000); // Check every hour
       return () => clearInterval(intervalId);
     }
-  }, [mode, location, determineIfDark]);
+  }, [mode, determineIfDark]);
   
   // Cycle through modes: light → dark → auto → light...
   const cycleMode = () => {

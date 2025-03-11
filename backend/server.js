@@ -704,17 +704,6 @@ app.put('/api/grocery-lists/:listId', authenticate, async (req, res) => {
   }
 });
 
-// Add a simple network test endpoint
-app.get('/api/network-test', (req, res) => {
-  console.log("Network test endpoint called");
-  res.json({ 
-    status: 'ok',
-    message: 'Network connection successful',
-    timestamp: new Date(),
-    clientIp: req.ip
-  });
-});
-
 // List Sharing Routes
 app.post('/api/grocery-lists/:listId/share', authenticate, async (req, res) => {
   try {
