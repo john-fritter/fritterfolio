@@ -6,33 +6,44 @@ export const useGroceryLists = (user) => {
   const [currentList, setCurrentList] = useState(null);
   const [listsLoading, setListsLoading] = useState(true);
   const [newListName, setNewListName] = useState('');
+  const [hasInitiallyFetched, setHasInitiallyFetched] = useState(false);
 
   // Fetch all grocery lists
   const fetchGroceryLists = useCallback(async () => {
-    if (!user) return;
-    
+    if (!user) {
+      console.log('No user, skipping lists fetch');
+      return [];
+    }
+
+    // Only skip if we've already fetched once and have lists
+    if (hasInitiallyFetched && groceryLists.length > 0) {
+      console.log('Using cached grocery lists:', groceryLists);
+      return groceryLists;
+    }
+  
     try {
+      console.log('Fetching grocery lists...');
       setListsLoading(true);
       const lists = await api.getGroceryLists();
-      
-      // Ensure each list has an items array
+      console.log('Fetched lists:', lists);
+  
       const processedLists = lists.map(list => ({
         ...list,
-        items: Array.isArray(list.items) ? list.items : []
+        items: Array.isArray(list.items) ? list.items : [],
       }));
-      
+  
       setGroceryLists(processedLists);
-      
-      // If no current list is selected but lists exist, select the first one
-      if (!currentList && processedLists.length > 0) {
-        setCurrentList(processedLists[0]);
-      }
+      setHasInitiallyFetched(true);
+      return processedLists;
     } catch (error) {
       console.error("Error fetching grocery lists:", error);
+      return [];
     } finally {
       setListsLoading(false);
     }
-  }, [user, currentList]);
+  }, [user, groceryLists, hasInitiallyFetched]);
+  
+  
 
   // Create a new list
   const createList = async (name) => {

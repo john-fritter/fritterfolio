@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 
 const TAG_COLORS = [
@@ -58,6 +58,23 @@ const ItemEditingModal = ({ isOpen, itemName, tags = [], allTags = [], onSave, o
   const [itemTags, setItemTags] = useState(tags);
   const [error, setError] = useState('');
   const [showPreview, setShowPreview] = useState(false);
+  const modalRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (modalRef.current && !modalRef.current.contains(event.target)) {
+        onCancel();
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen, onCancel]);
 
   useEffect(() => {
     if (isOpen) {
@@ -113,7 +130,7 @@ const ItemEditingModal = ({ isOpen, itemName, tags = [], allTags = [], onSave, o
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-dark-background rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
+      <div ref={modalRef} className="bg-white dark:bg-dark-background rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
         <h2 className="text-lg font-medium text-secondary-dm mb-4">Edit Item</h2>
         
         <form onSubmit={handleSubmit}>

@@ -1,31 +1,75 @@
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import * as api from '../../services/api';
 
 export const useGroceryItems = (listId, updateListCount) => {
   const [items, setItems] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(true);
   const [newItem, setNewItem] = useState('');
+  const [isAdding, setIsAdding] = useState(false); // New state for add operation
+  const [lastFetchedListId, setLastFetchedListId] = useState(null);
+
+  // Debug log for state changes
+  useEffect(() => {
+    console.log('Items state changed:', { items, listId, itemsLoading });
+  }, [items, listId, itemsLoading]);
 
   // Fetch items for a specific list
-  const fetchItems = useCallback(async () => {
-    if (!listId) return;
-    
+  const fetchItems = useCallback(async (force = false) => {
+    if (!listId) {
+      console.log('No listId provided, clearing items');
+      setItems([]);
+      setItemsLoading(false);
+      setLastFetchedListId(null);
+      return;
+    }
+
+    // Only fetch if forced, different list, or no items
+    if (!force && lastFetchedListId === listId && items.length > 0) {
+      console.log('Skipping fetch - already have items for list:', listId);
+      return;
+    }
+  
     try {
       setItemsLoading(true);
+      console.log("🔄 Fetching items for list:", listId);
+  
       const fetchedItems = await api.getGroceryItems(listId);
-      setItems(fetchedItems);
+      console.log("✅ Fetched items from API:", fetchedItems);
+  
+      const itemsArray = Array.isArray(fetchedItems) ? fetchedItems : [];
+      setItems(itemsArray);
+      setLastFetchedListId(listId);
+      console.log("✅ Updated items state with:", itemsArray);
     } catch (error) {
-      console.error("Error fetching list items:", error);
+      console.error("❌ Error fetching list items:", error);
+      setItems([]);
+      setLastFetchedListId(null);
     } finally {
       setItemsLoading(false);
     }
-  }, [listId]);
+  }, [items.length, lastFetchedListId, listId]);
 
-  // Add a new item
+  // Effect to fetch items when listId changes
+  useEffect(() => {
+    console.log("🔄 List ID changed to:", listId);
+    fetchItems(true);
+  }, [listId, fetchItems]);
+
+  // Add a new item with debounce protection
   const addItem = async (name) => {
-    if (!name.trim() || !listId) return;
+    if (!name.trim() || !listId || isAdding) return;
     
     try {
+      setIsAdding(true);
+      // Check for duplicates case-insensitively
+      const isDuplicate = items.some(item => 
+        item.name.toLowerCase() === name.trim().toLowerCase()
+      );
+      
+      if (isDuplicate) {
+        throw new Error('This item is already in your list');
+      }
+      
       const newItemObj = await api.addGroceryItem(listId, name);
       setItems(prev => [...prev, newItemObj]);
       if (updateListCount) {
@@ -35,6 +79,8 @@ export const useGroceryItems = (listId, updateListCount) => {
     } catch (error) {
       console.error("Error adding item:", error);
       throw error;
+    } finally {
+      setIsAdding(false);
     }
   };
 
@@ -104,6 +150,7 @@ export const useGroceryItems = (listId, updateListCount) => {
   return {
     items,
     itemsLoading,
+    isAdding,
     newItem,
     setNewItem,
     fetchItems,

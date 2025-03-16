@@ -171,51 +171,139 @@ app.post('/api/grocery-lists', authenticate, async (req, res) => {
 
 // Grocery Items Routes
 app.get('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
+  const { listId } = req.params;
+  const userId = req.user.id;
+
   try {
-    const { listId } = req.params;
-    const result = await db.query(
-      `SELECT 
-        gi.id, 
-        gi.list_id, 
-        gi.name, 
-        gi.completed, 
+    // First check if user has access to this list (either owns it or has an accepted share)
+    const listAccessResult = await db.query(`
+      SELECT 
+        gl.id,
+        gl.owner_id,
+        sl.id as share_id,
+        sl.status as share_status
+      FROM grocery_lists gl
+      LEFT JOIN shared_lists sl ON sl.list_id = gl.id AND sl.shared_with_id = $1
+      WHERE gl.id = $2 AND (gl.owner_id = $3 OR (sl.status = 'accepted' AND sl.shared_with_id = $4))
+    `, [userId, listId, userId, userId]);
+
+    if (listAccessResult.rows.length === 0) {
+      return res.status(403).json({ 
+        error: 'Access denied',
+        message: 'You do not have access to this list'
+      });
+    }
+
+    // Now fetch the items with their tags
+    const itemsResult = await db.query(`
+      SELECT 
+        gi.id,
+        gi.name,
+        gi.completed,
         gi.created_at,
         COALESCE(
-          (
-            SELECT json_agg(
-              json_build_object('text', t.text, 'color', t.color)
+          json_agg(
+            json_build_object(
+              'text', t.text,
+              'color', t.color
             )
-            FROM item_tags it
-            JOIN tags t ON it.tag_id = t.id
-            WHERE it.item_id = gi.id
-          ),
+          ) FILTER (WHERE t.id IS NOT NULL),
           '[]'
         ) as tags
       FROM grocery_items gi
+      LEFT JOIN item_tags it ON it.item_id = gi.id
+      LEFT JOIN tags t ON t.id = it.tag_id
       WHERE gi.list_id = $1
       GROUP BY gi.id
-      ORDER BY gi.created_at`,
-      [listId]
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+      ORDER BY gi.created_at DESC
+    `, [listId]);
+
+    // Format the items
+    const formattedItems = itemsResult.rows.map(item => ({
+      id: item.id,
+      name: item.name,
+      completed: item.completed,
+      created_at: item.created_at,
+      tags: Array.isArray(item.tags) ? item.tags : []
+    }));
+
+    res.json(formattedItems);
+  } catch (error) {
+    console.error('Error fetching items:', error);
+    res.status(500).json({ 
+      error: 'Database error',
+      message: 'Failed to fetch items. Please try again.'
+    });
   }
 });
 
 app.post('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
+  const { listId } = req.params;
+  const { name } = req.body;
+  const userId = req.user.id;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ 
+      error: 'Invalid input',
+      message: 'Item name is required'
+    });
+  }
+
   try {
-    const { listId } = req.params;
-    const { name } = req.body;
-    const result = await db.query(
-      'INSERT INTO grocery_items (list_id, name) VALUES ($1, $2) RETURNING *',
-      [listId, name]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    // First check if user has access to this list
+    const listAccess = await db.get(`
+      SELECT 
+        gl.id,
+        gl.user_id as owner_id,
+        s.id as share_id,
+        s.status as share_status
+      FROM grocery_lists gl
+      LEFT JOIN shares s ON s.list_id = gl.id AND s.recipient_id = ?
+      WHERE gl.id = ? AND (gl.user_id = ? OR (s.status = 'accepted' AND s.recipient_id = ?))
+    `, [userId, listId, userId, userId]);
+
+    if (!listAccess) {
+      return res.status(403).json({ 
+        error: 'Access denied',
+        message: 'You do not have access to this list'
+      });
+    }
+
+    // Check for duplicates case-insensitively
+    const existingItem = await db.get(`
+      SELECT id FROM items 
+      WHERE list_id = ? AND LOWER(name) = LOWER(?)
+    `, [listId, name.trim()]);
+
+    if (existingItem) {
+      return res.status(400).json({ 
+        error: 'Duplicate item',
+        message: 'This item already exists in the list'
+      });
+    }
+
+    const result = await db.run(`
+      INSERT INTO items (list_id, name, completed, created_at)
+      VALUES (?, ?, 0, datetime('now'))
+    `, [listId, name.trim()]);
+
+    const newItem = await db.get(`
+      SELECT id, name, completed, created_at
+      FROM items
+      WHERE id = ?
+    `, [result.lastID]);
+
+    res.json({
+      ...newItem,
+      completed: Boolean(newItem.completed),
+      tags: []
+    });
+  } catch (error) {
+    console.error('Error adding item:', error);
+    res.status(500).json({ 
+      error: 'Database error',
+      message: 'Failed to add item. Please try again.'
+    });
   }
 });
 
