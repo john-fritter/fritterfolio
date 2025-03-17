@@ -135,8 +135,8 @@ export default function Grocery() {
       // Set tags
       setAllTags(tags);
       
-      // Handle list selection if in list view
-      if (savedView === VIEWS.LIST && lists.length > 0) {
+      // Handle list selection
+      if (lists.length > 0) {
         const savedListId = localStorage.getItem('currentListId');
         if (savedListId) {
           const savedList = lists.find(list => list.id === parseInt(savedListId));
@@ -401,23 +401,83 @@ export default function Grocery() {
             return;
           }
           
+          // Track successfully added items, duplicates, and errors
+          let addedItems = 0;
+          let duplicateItems = 0;
+          let errorItems = 0;
+          let atLeastOneProcessed = false;
+          
           Promise.all(selectedMasterItems.map(async (item) => {
             try {
+              // Check if item already exists in the current list
+              const isDuplicate = items.some(existingItem => 
+                existingItem.name.toLowerCase() === item.name.toLowerCase()
+              );
+              
+              if (isDuplicate) {
+                duplicateItems++;
+                atLeastOneProcessed = true;
+                return { status: 'duplicate', item };
+              }
+              
+              // Add to the current list
               await addItem(item.name);
+              addedItems++;
+              atLeastOneProcessed = true;
+              
+              // Always add to master list and untoggle
               await addToMasterList(item.name);
               await toggleMasterItem(item.id, false);
+              
+              return { status: 'success', item };
             } catch (error) {
-              console.error("Error adding item:", error);
+              // Handle different types of errors
+              if (error.message === 'This item is already in your list') {
+                duplicateItems++;
+              } else {
+                console.error("Error adding item:", error);
+                errorItems++;
+              }
+              return { status: 'error', item, error };
             }
-          })).then(() => {
+          }))
+          .then(() => {
+            // After all operations complete, determine the appropriate notification
+            if (addedItems === 0 && errorItems === 0) {
+              // Only duplicates - no successful additions and no errors
+              setNotification({
+                message: `No new items added. All ${duplicateItems} selected items already exist in ${currentList.name}`,
+                type: "warning"
+              });
+            } else if (addedItems > 0 && errorItems === 0) {
+              // Some additions succeeded and no errors
+              setNotification({
+                message: `${addedItems} item(s) added to ${currentList.name}${duplicateItems > 0 ? ` (${duplicateItems} duplicate(s) skipped)` : ''}`,
+                type: "success"
+              });
+            } else if (errorItems > 0) {
+              // Some or all additions failed due to server errors
+              setNotification({
+                message: `${addedItems > 0 ? `${addedItems} item(s) added, but ` : ''}${errorItems} item(s) failed to add due to a server error${duplicateItems > 0 ? ` (${duplicateItems} duplicate(s) skipped)` : ''}`,
+                type: "error"
+              });
+            }
+            
+            // Refresh the items list if at least one operation was processed
+            if (atLeastOneProcessed) {
+              fetchItems(currentList.id);
+            }
+          })
+          .catch(error => {
+            // This would only happen if the Promise.all itself fails
+            console.error("Fatal error in batch processing:", error);
             setNotification({
-              message: `${selectedMasterItems.length} item(s) added to ${currentList.name}`,
-              type: "success"
+              message: "An unexpected error occurred. Please try again.",
+              type: "error"
             });
-            fetchItems(currentList.id);
           });
         },
-        show: view === VIEWS.MASTER && currentList !== null 
+        show: view === VIEWS.MASTER && currentList !== null && masterList?.items?.some(item => item.completed)
       }
     ];
 

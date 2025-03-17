@@ -251,18 +251,18 @@ app.post('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
 
   try {
     // First check if user has access to this list
-    const listAccess = await db.get(`
+    const listAccessResult = await db.query(`
       SELECT 
         gl.id,
-        gl.user_id as owner_id,
-        s.id as share_id,
-        s.status as share_status
+        gl.owner_id,
+        sl.id as share_id,
+        sl.status as share_status
       FROM grocery_lists gl
-      LEFT JOIN shares s ON s.list_id = gl.id AND s.recipient_id = ?
-      WHERE gl.id = ? AND (gl.user_id = ? OR (s.status = 'accepted' AND s.recipient_id = ?))
+      LEFT JOIN shared_lists sl ON sl.list_id = gl.id AND sl.shared_with_id = $1
+      WHERE gl.id = $2 AND (gl.owner_id = $3 OR (sl.status = 'accepted' AND sl.shared_with_id = $4))
     `, [userId, listId, userId, userId]);
 
-    if (!listAccess) {
+    if (listAccessResult.rows.length === 0) {
       return res.status(403).json({ 
         error: 'Access denied',
         message: 'You do not have access to this list'
@@ -270,32 +270,29 @@ app.post('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
     }
 
     // Check for duplicates case-insensitively
-    const existingItem = await db.get(`
-      SELECT id FROM items 
-      WHERE list_id = ? AND LOWER(name) = LOWER(?)
+    const duplicateResult = await db.query(`
+      SELECT id FROM grocery_items 
+      WHERE list_id = $1 AND LOWER(name) = LOWER($2)
     `, [listId, name.trim()]);
 
-    if (existingItem) {
+    if (duplicateResult.rows.length > 0) {
       return res.status(400).json({ 
         error: 'Duplicate item',
         message: 'This item already exists in the list'
       });
     }
 
-    const result = await db.run(`
-      INSERT INTO items (list_id, name, completed, created_at)
-      VALUES (?, ?, 0, datetime('now'))
+    // Add the item
+    const insertResult = await db.query(`
+      INSERT INTO grocery_items (list_id, name, completed)
+      VALUES ($1, $2, false)
+      RETURNING id, name, completed, created_at
     `, [listId, name.trim()]);
 
-    const newItem = await db.get(`
-      SELECT id, name, completed, created_at
-      FROM items
-      WHERE id = ?
-    `, [result.lastID]);
+    const newItem = insertResult.rows[0];
 
-    res.json({
+    res.status(201).json({
       ...newItem,
-      completed: Boolean(newItem.completed),
       tags: []
     });
   } catch (error) {
