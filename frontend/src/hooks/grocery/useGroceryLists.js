@@ -1,47 +1,58 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import * as api from '../../services/api';
 
 export const useGroceryLists = (user) => {
   const [groceryLists, setGroceryLists] = useState([]);
   const [currentList, setCurrentList] = useState(null);
-  const [listsLoading, setListsLoading] = useState(true);
+  const [listsLoading, setListsLoading] = useState(false);
   const [newListName, setNewListName] = useState('');
-  const [hasInitiallyFetched, setHasInitiallyFetched] = useState(false);
+  
+  // Memoized version of the lists to stabilize renders
+  const memoizedLists = useMemo(() => groceryLists, [groceryLists]);
 
-  // Fetch all grocery lists
-  const fetchGroceryLists = useCallback(async () => {
-    if (!user) {
-      console.log('No user, skipping lists fetch');
-      return [];
-    }
+  // Fetch all grocery lists with extreme caching
+  const fetchGroceryLists = useCallback(async (force = false) => {
+    if (!user) return [];
 
-    // Only skip if we've already fetched once and have lists
-    if (hasInitiallyFetched && groceryLists.length > 0) {
-      console.log('Using cached grocery lists:', groceryLists);
-      return groceryLists;
+    // If we already have lists and not forcing, just return them immediately
+    if (!force && memoizedLists.length > 0) {
+      return memoizedLists;
     }
   
     try {
-      console.log('Fetching grocery lists...');
-      setListsLoading(true);
+      // Only show loading if we don't have any lists yet
+      if (memoizedLists.length === 0) {
+        setListsLoading(true);
+      }
+      
       const lists = await api.getGroceryLists();
-      console.log('Fetched lists:', lists);
-  
       const processedLists = lists.map(list => ({
         ...list,
         items: Array.isArray(list.items) ? list.items : [],
       }));
-  
-      setGroceryLists(processedLists);
-      setHasInitiallyFetched(true);
+      
+      // Only update state if lists actually changed (by ID)
+      const currentIds = new Set(memoizedLists.map(list => list.id));
+      const newIds = new Set(processedLists.map(list => list.id));
+      
+      // Check if the lists have actually changed
+      const listsChanged = 
+        memoizedLists.length !== processedLists.length || 
+        processedLists.some(list => !currentIds.has(list.id)) ||
+        memoizedLists.some(list => !newIds.has(list.id));
+      
+      if (listsChanged) {
+        setGroceryLists(processedLists);
+      }
+      
       return processedLists;
     } catch (error) {
       console.error("Error fetching grocery lists:", error);
-      return [];
+      return memoizedLists.length > 0 ? memoizedLists : [];
     } finally {
       setListsLoading(false);
     }
-  }, [user, groceryLists, hasInitiallyFetched]);
+  }, [user, memoizedLists]);
   
   
 
@@ -51,7 +62,6 @@ export const useGroceryLists = (user) => {
     
     try {
       const newList = await api.createGroceryList(name);
-      console.log('Created new list:', newList);
       const listWithItems = { ...newList, items: [] };
       setCurrentList(listWithItems);
       setGroceryLists(prev => [listWithItems, ...prev]);

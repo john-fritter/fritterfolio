@@ -7,8 +7,13 @@ export const useMasterList = (user) => {
   const [selectedItems, setSelectedItems] = useState([]);
 
   // Fetch master list items
-  const fetchMasterList = useCallback(async () => {
+  const fetchMasterList = useCallback(async (force = false) => {
     if (!user) return;
+    
+    // Skip if we already have items and not forced
+    if (!force && masterList.items.length > 0) {
+      return masterList;
+    }
     
     try {
       setMasterLoading(true);
@@ -29,12 +34,17 @@ export const useMasterList = (user) => {
         ...masterListData,
         items: deduplicatedItems
       });
+      
+      return {
+        ...masterListData,
+        items: deduplicatedItems
+      };
     } catch (error) {
       console.error("Error fetching master list:", error);
     } finally {
       setMasterLoading(false);
     }
-  }, [user]);
+  }, [user, masterList]);
 
   // Add item to master list
   const addToMasterList = async (itemName) => {

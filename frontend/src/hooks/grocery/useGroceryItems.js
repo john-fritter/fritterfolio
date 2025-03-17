@@ -3,57 +3,45 @@ import * as api from '../../services/api';
 
 export const useGroceryItems = (listId, updateListCount) => {
   const [items, setItems] = useState([]);
-  const [itemsLoading, setItemsLoading] = useState(true);
+  const [itemsLoading, setItemsLoading] = useState(false);
   const [newItem, setNewItem] = useState('');
-  const [isAdding, setIsAdding] = useState(false); // New state for add operation
+  const [isAdding, setIsAdding] = useState(false);
   const [lastFetchedListId, setLastFetchedListId] = useState(null);
-
-  // Debug log for state changes
-  useEffect(() => {
-    console.log('Items state changed:', { items, listId, itemsLoading });
-  }, [items, listId, itemsLoading]);
 
   // Fetch items for a specific list
   const fetchItems = useCallback(async (force = false) => {
     if (!listId) {
-      console.log('No listId provided, clearing items');
       setItems([]);
-      setItemsLoading(false);
       setLastFetchedListId(null);
       return;
     }
 
-    // Only fetch if forced, different list, or no items
-    if (!force && lastFetchedListId === listId && items.length > 0) {
-      console.log('Skipping fetch - already have items for list:', listId);
+    // Skip if not forced and we already have items for this list
+    if (!force && lastFetchedListId === listId) {
       return;
     }
   
     try {
       setItemsLoading(true);
-      console.log("🔄 Fetching items for list:", listId);
-  
       const fetchedItems = await api.getGroceryItems(listId);
-      console.log("✅ Fetched items from API:", fetchedItems);
-  
       const itemsArray = Array.isArray(fetchedItems) ? fetchedItems : [];
       setItems(itemsArray);
       setLastFetchedListId(listId);
-      console.log("✅ Updated items state with:", itemsArray);
     } catch (error) {
-      console.error("❌ Error fetching list items:", error);
+      console.error("Error fetching list items:", error);
       setItems([]);
       setLastFetchedListId(null);
     } finally {
       setItemsLoading(false);
     }
-  }, [items.length, lastFetchedListId, listId]);
+  }, [listId, lastFetchedListId]);
 
   // Effect to fetch items when listId changes
   useEffect(() => {
-    console.log("🔄 List ID changed to:", listId);
-    fetchItems(true);
-  }, [listId, fetchItems]);
+    if (listId !== lastFetchedListId) {
+      fetchItems();
+    }
+  }, [listId, lastFetchedListId, fetchItems]);
 
   // Add a new item with debounce protection
   const addItem = async (name) => {

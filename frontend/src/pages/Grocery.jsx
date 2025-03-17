@@ -111,56 +111,57 @@ export default function Grocery() {
     if (!user || authLoading) return;
     
     const loadInitialData = async () => {
-      await fetchGroceryLists();
-      await fetchAcceptedShares();
+      // Set initial view from localStorage
+      const savedView = localStorage.getItem('groceryView') || VIEWS.LISTS;
+      setView(savedView);
+      
+      // Start fetches in parallel for better performance
+      const listsPromise = fetchGroceryLists();
+      const sharesPromise = fetchAcceptedShares();
+      const tagsPromise = api.getTags().catch(error => {
+        console.error('Error fetching tags:', error);
+        return [];
+      });
+      
+      // Add master list fetch if needed
+      const fetchPromises = [listsPromise, sharesPromise, tagsPromise];
+      if (savedView === VIEWS.MASTER) {
+        fetchPromises.push(fetchMasterList());
+      }
+      
+      // Wait for all fetches to complete
+      const [lists, , tags] = await Promise.all(fetchPromises);
+      
+      // Set tags
+      setAllTags(tags);
+      
+      // Handle list selection if in list view
+      if (savedView === VIEWS.LIST && lists.length > 0) {
+        const savedListId = localStorage.getItem('currentListId');
+        if (savedListId) {
+          const savedList = lists.find(list => list.id === parseInt(savedListId));
+          if (savedList) {
+            setCurrentList(savedList);
+          } else {
+            setCurrentList(lists[0]);
+          }
+        } else {
+          setCurrentList(lists[0]);
+        }
+      }
     };
     
     loadInitialData();
-  }, [user, authLoading, fetchGroceryLists, fetchAcceptedShares]);
+  }, [user, authLoading, fetchGroceryLists, fetchAcceptedShares, fetchMasterList, setCurrentList]);
 
-  // Third effect: Restore current list from localStorage if needed
-  useEffect(() => {
-    if (!user || authLoading || groceryLists.length === 0) return;
-    
-    const savedListId = localStorage.getItem('currentListId');
-    const savedView = localStorage.getItem('groceryView');
-    
-    if (savedView === VIEWS.LIST) {
-      if (savedListId) {
-        const savedList = groceryLists.find(list => list.id === parseInt(savedListId));
-        if (savedList) {
-          console.log('Restoring saved list:', savedList.name);
-          setCurrentList(savedList);
-          setView(VIEWS.LIST);
-        } else if (groceryLists.length > 0) {
-          console.log('Saved list not found, using first list');
-          setCurrentList(groceryLists[0]);
-          setView(VIEWS.LIST);
-        } else {
-          setView(VIEWS.LISTS);
-        }
-      } else if (groceryLists.length > 0) {
-        console.log('No saved list, using first list');
-        setCurrentList(groceryLists[0]);
-        setView(VIEWS.LIST);
-      } else {
-        setView(VIEWS.LISTS);
-      }
-    }
-  }, [user, authLoading, groceryLists, setCurrentList]);
-
-  // Fourth effect: Load view-specific data
+  // Third effect: Load view-specific data
   useEffect(() => {
     if (!user || authLoading) return;
 
     if (view === VIEWS.MASTER) {
-      console.log('Loading master list view');
       fetchMasterList();
-    } else if (view === VIEWS.LIST && !currentList && groceryLists.length > 0) {
-      console.log('No current list in LIST view, selecting first list');
-      setCurrentList(groceryLists[0]);
     }
-  }, [user, authLoading, view, currentList, groceryLists, fetchMasterList, setCurrentList]);
+  }, [user, authLoading, view, fetchMasterList]);
 
   // Save view to localStorage
   useEffect(() => {
@@ -176,22 +177,6 @@ export default function Grocery() {
     }
   }, [currentList?.id]);
 
-  // Fetch tags when component mounts
-  useEffect(() => {
-    const fetchTags = async () => {
-      try {
-        const tags = await api.getTags();
-        setAllTags(tags);
-      } catch (error) {
-        console.error('Error fetching tags:', error);
-      }
-    };
-
-    if (user) {
-      fetchTags();
-    }
-  }, [user]);
-
   // Keep new item input focused
   useEffect(() => {
     if (newItemInputRef.current && document.activeElement !== newItemInputRef.current) {
@@ -199,7 +184,30 @@ export default function Grocery() {
     }
   }, [newItem]);
 
-  // Combined lists for the lists view
+  // Derived state for loading conditions
+  const determineLoadingState = useCallback(() => {
+    // For lists view, only show loading on initial fetch with no data
+    if (view === VIEWS.LISTS) {
+      return (listsLoading && groceryLists.length === 0) || 
+             (sharingLoading && acceptedShares.length === 0);
+    }
+    
+    // For list view, only show loading when we have no items
+    if (view === VIEWS.LIST) {
+      return itemsLoading && items.length === 0;
+    }
+    
+    // For master view, only show loading when we have no items
+    return masterLoading && (!masterList || !masterList.items || masterList.items.length === 0);
+  }, [
+    view, 
+    listsLoading, groceryLists.length,
+    sharingLoading, acceptedShares.length,
+    itemsLoading, items.length,
+    masterLoading, masterList
+  ]);
+
+  // Combine accepted shares with grocery lists
   const combinedLists = useMemo(() => {
     const sharedListsFormatted = acceptedShares.map(share => ({
       id: share.list_id,
@@ -575,11 +583,7 @@ export default function Grocery() {
           toggleAllMasterItems={toggleAllMasterItems}
           deleteMasterItem={deleteMasterItem}
           // Common props
-          isLoading={
-            view === 'lists' ? listsLoading || sharingLoading :
-            view === 'list' ? itemsLoading :
-            masterLoading
-          }
+          isLoading={determineLoadingState()}
           menuItems={getMenuItems()}
           addForm={
             view === 'lists' ? addListForm :

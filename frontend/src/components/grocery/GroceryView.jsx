@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import GroceryLayout from '../../layouts/GroceryLayout';
 import ListRow from './ListRow';
@@ -36,20 +36,56 @@ export default function GroceryView({
   menuItems,
   addForm
 }) {
-  // Compute sorted items based on view type
-  const sortedItems = useMemo(() => {
-    if (view === 'lists') {
-      return combinedLists;
+  // Local state for storing the last valid lists data to prevent flickering
+  const [cachedLists, setCachedLists] = useState([]);
+  const [cachedView, setCachedView] = useState(view);
+  const [showLoading, setShowLoading] = useState(isLoading);
+  
+  // Store combined lists in a cache to prevent flickering
+  useEffect(() => {
+    if (view === 'lists' && combinedLists && combinedLists.length > 0) {
+      setCachedLists(combinedLists);
     }
+  }, [view, combinedLists]);
+  
+  // Store the current view when it changes (except during loading)
+  useEffect(() => {
+    if (!isLoading) {
+      setCachedView(view);
+    }
+  }, [view, isLoading]);
+  
+  // Handle loading state with debounce to prevent flickering
+  useEffect(() => {
+    let timer;
+    if (isLoading) {
+      // If loading has been true for more than 500ms, show loading UI
+      timer = setTimeout(() => {
+        setShowLoading(true);
+      }, 500);
+    } else {
+      // When loading completes, clear the timer and hide loading immediately
+      clearTimeout(timer);
+      setShowLoading(false);
+    }
+    return () => clearTimeout(timer);
+  }, [isLoading]);
 
-    const sourceItems = view === 'list' ? items : masterList?.items;
+  // Get the actual data for the current view
+  const listData = useMemo(() => {
+    if (cachedView === 'lists') {
+      // Use cached lists if we have them, otherwise fall back to combined lists
+      return cachedLists.length > 0 ? cachedLists : combinedLists || [];
+    }
+    
+    // For other views, we don't need special handling
+    const sourceItems = cachedView === 'list' ? items : masterList?.items;
     
     if (!sourceItems || !Array.isArray(sourceItems)) {
-      console.log('No items or invalid items array');
       return [];
     }
     
-    if (view === 'list') {
+    if (cachedView === 'list') {
       const filtered = sourceItems.filter(item => 
         !currentTagFilter || item.tags?.some(tag => tag.text === currentTagFilter.text)
       );
@@ -57,19 +93,19 @@ export default function GroceryView({
     }
     
     return [...sourceItems].sort((a, b) => a.name.localeCompare(b.name));
-  }, [view, items, masterList, combinedLists, currentTagFilter]);
+  }, [cachedView, items, masterList, combinedLists, cachedLists, currentTagFilter]);
 
   // Compute whether all items are checked
   const isAllChecked = useMemo(() => {
-    if (view === 'lists' || !sortedItems.length) return false;
-    return sortedItems.every(item => item.completed);
-  }, [view, sortedItems]);
+    if (cachedView === 'lists' || !listData.length) return false;
+    return listData.every(item => item.completed);
+  }, [cachedView, listData]);
 
   // Generate title based on view
   const title = useMemo(() => {
-    if (view === 'lists') return "My Grocery Lists";
-    if (view === 'master') return "Master List";
-    if (view === 'list' && currentList) {
+    if (cachedView === 'lists') return "My Grocery Lists";
+    if (cachedView === 'master') return "Master List";
+    if (cachedView === 'list' && currentList) {
       return (
         <div className="flex items-center gap-2">
           <span className="truncate max-w-52 sm:max-w-none">{currentList.name}</span>
@@ -96,145 +132,176 @@ export default function GroceryView({
       );
     }
     return "";
-  }, [view, currentList, currentTagFilter, setCurrentTagFilter]);
+  }, [cachedView, currentList, currentTagFilter, setCurrentTagFilter]);
 
-  // Generate list items based on view
-  const listItems = useMemo(() => {
-    if (view === 'lists') {
-      return sortedItems.map(list => (
-        <ListRow
-          key={list.id + (list.is_received_share ? '-shared' : '')}
-          text={
-            <div className="flex items-center">
-              <span className="text-lg text-secondary-dm truncate max-w-32 sm:max-w-none">
-                {list.name}
-              </span>
-              {list.is_shared && (
-                <span className="ml-2 text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
-                  <span className="hidden sm:inline">{list.shared_with_email}</span>
-                  <span className="sm:hidden">Shared</span>
-                </span>
-              )}
-              <span className="ml-2 text-xs text-secondary-dm opacity-75 hidden sm:inline">
-                {Array.isArray(list.items) ? `${list.items.length} items` : '0 items'}
-              </span>
-            </div>
-          }
-          rightElements={
-            !list.is_received_share && (
-              <>
-                <ActionButton 
-                  title="Edit list"
-                  icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingList(list);
-                  }}
-                />
-                <ActionButton 
-                  title="Delete list"
-                  icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (window.confirm('Are you sure you want to delete this list?')) {
-                      deleteList(list.id);
-                    }
-                  }}
-                  color="accent"
-                  iconColor="text-red-500"
-                />
-              </>
-            )
-          }
-          onClick={() => selectList(list)}
-        />
-      ));
-    }
-
-    return sortedItems.map(item => (
-      <ListRow
-        key={item.id}
-        leftElement={
-          <input
-            type="checkbox"
-            checked={item.completed}
-            onChange={() => {
-              const toggleFn = view === 'list' ? toggleItem : toggleMasterItem;
-              toggleFn(item.id, !item.completed);
-            }}
-            className="h-6 w-6 text-primary border-gray-300 rounded focus:ring-primary"
-          />
-        }
-        text={
-          view === 'list' ? (
-            <div className="relative w-full flex items-center gap-2 overflow-hidden">
-              <div className="flex-none">
-                <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
-                  {item.name}
-                </span>
-              </div>
-              {item.tags && item.tags.length > 0 && (
-                <SmartTruncatedTags 
-                  tags={item.tags} 
-                  onTagClick={setCurrentTagFilter}
-                />
-              )}
-            </div>
-          ) : (
-            <span className={item.completed ? 'text-lg text-secondary-dm line-through truncate block max-w-64 sm:max-w-none' : 'text-lg text-secondary-dm truncate block max-w-64 sm:max-w-none'}>
-              {item.name}
-            </span>
-          )
-        }
-        rightElements={
-          view === 'list' ? (
-            <>
-              <ActionButton 
-                title="Edit item"
-                icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
-                onClick={() => setEditingItem(item)}
-              />
-              <ActionButton 
-                title="Delete item"
-                icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
-                onClick={() => deleteItem(item.id)}
-                color="accent"
-                iconColor="text-red-500"
-              />
-            </>
-          ) : (
-            <ActionButton 
-              title="Delete item"
-              icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
-              onClick={() => deleteMasterItem(item.id)}
-              color="accent"
-              iconColor="text-red-500"
-            />
-          )
-        }
-      />
-    ));
-  }, [view, sortedItems, toggleItem, toggleMasterItem, deleteItem, deleteMasterItem, setEditingItem, setCurrentTagFilter, selectList, setEditingList, deleteList]);
-
-  // Get empty message based on view
-  const emptyMessage = view === 'lists'
+  const emptyMessage = cachedView === 'lists'
     ? "You don't have any lists yet. Create your first list below."
-    : view === 'master'
+    : cachedView === 'master'
       ? "Your master list is empty. Items you add to any list will appear here."
       : "No items in this list yet. Add your first item below.";
 
   return (
     <GroceryLayout
       title={title}
-      showCheckAll={view !== 'lists' && sortedItems.length > 0}
+      showCheckAll={cachedView !== 'lists' && listData.length > 0}
       isAllChecked={isAllChecked}
-      onCheckAll={view === 'list' ? toggleAllItems : toggleAllMasterItems}
+      onCheckAll={cachedView === 'list' ? toggleAllItems : toggleAllMasterItems}
       menuItems={menuItems}
-      isLoading={isLoading}
+      isLoading={showLoading}
       emptyMessage={emptyMessage}
       addItemForm={addForm}
     >
-      {listItems}
+      {!showLoading ? (
+        // Generate list items based on view
+        listData.length > 0 ? (
+          listData.map(cachedView === 'lists' 
+            ? list => (
+              <ListRow
+                key={list.id + (list.is_received_share ? '-shared' : '')}
+                text={
+                  <div className="flex items-center">
+                    <span className="text-lg text-secondary-dm truncate max-w-32 sm:max-w-none">
+                      {list.name}
+                    </span>
+                    {list.is_shared && (
+                      <span className="ml-2 text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
+                        <span className="hidden sm:inline">{list.shared_with_email}</span>
+                        <span className="sm:hidden">Shared</span>
+                      </span>
+                    )}
+                    <span className="ml-2 text-xs text-secondary-dm opacity-75 hidden sm:inline">
+                      {Array.isArray(list.items) ? `${list.items.length} items` : '0 items'}
+                    </span>
+                  </div>
+                }
+                rightElements={
+                  !list.is_received_share && (
+                    <>
+                      <ActionButton 
+                        title="Edit list"
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingList(list);
+                        }}
+                      />
+                      <ActionButton 
+                        title="Delete list"
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm('Are you sure you want to delete this list?')) {
+                            deleteList(list.id);
+                          }
+                        }}
+                        color="accent"
+                        iconColor="text-red-500"
+                      />
+                    </>
+                  )
+                }
+                onClick={() => selectList(list)}
+              />
+            )
+            : item => (
+              <ListRow
+                key={item.id}
+                leftElement={
+                  <input
+                    type="checkbox"
+                    checked={item.completed}
+                    onChange={() => {
+                      const toggleFn = cachedView === 'list' ? toggleItem : toggleMasterItem;
+                      toggleFn(item.id, !item.completed);
+                    }}
+                    className="h-6 w-6 text-primary border-gray-300 rounded focus:ring-primary"
+                  />
+                }
+                text={
+                  cachedView === 'list' ? (
+                    <div className="relative w-full flex items-center gap-2 overflow-hidden">
+                      <div className="flex-none">
+                        <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
+                          {item.name}
+                        </span>
+                      </div>
+                      {item.tags && item.tags.length > 0 && (
+                        <SmartTruncatedTags 
+                          tags={item.tags} 
+                          onTagClick={setCurrentTagFilter}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <span className={item.completed ? 'text-lg text-secondary-dm line-through truncate block max-w-64 sm:max-w-none' : 'text-lg text-secondary-dm truncate block max-w-64 sm:max-w-none'}>
+                      {item.name}
+                    </span>
+                  )
+                }
+                rightElements={
+                  cachedView === 'list' ? (
+                    <>
+                      <ActionButton 
+                        title="Edit item"
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
+                        onClick={() => setEditingItem(item)}
+                      />
+                      <ActionButton 
+                        title="Delete item"
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
+                        onClick={() => deleteItem(item.id)}
+                        color="accent"
+                        iconColor="text-red-500"
+                      />
+                    </>
+                  ) : (
+                    <ActionButton 
+                      title="Delete item"
+                      icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
+                      onClick={() => deleteMasterItem(item.id)}
+                      color="accent"
+                      iconColor="text-red-500"
+                    />
+                  )
+                }
+              />
+            ))
+        ) : (
+          !showLoading && <div className="text-center text-secondary-dm opacity-60 py-4">{emptyMessage}</div>
+        )
+      ) : (
+        // Placeholder skeleton
+        cachedView === 'lists' ? (
+          <div className="animate-pulse">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="py-4 px-4 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center space-x-4">
+                  <div className="h-6 w-48 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                </div>
+                <div className="flex space-x-2">
+                  <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+                  <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="animate-pulse">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="py-4 px-4 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center space-x-4">
+                  <div className="h-6 w-6 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                  <div className="h-5 w-40 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                </div>
+                <div className="flex space-x-2">
+                  <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+                  <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
     </GroceryLayout>
   );
 }
