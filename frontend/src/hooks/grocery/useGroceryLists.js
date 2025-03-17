@@ -10,18 +10,16 @@ export const useGroceryLists = (user) => {
   // Memoized version of the lists to stabilize renders
   const memoizedLists = useMemo(() => groceryLists, [groceryLists]);
 
-  // Fetch all grocery lists with extreme caching
+  // Fetch all grocery lists with improved state handling
   const fetchGroceryLists = useCallback(async (force = false) => {
     if (!user) return [];
 
-    // If we already have lists and not forcing, just return them immediately
-    if (!force && memoizedLists.length > 0) {
-      return memoizedLists;
-    }
-  
+    // Only use cache for very rapid repeated calls
+    // Always fetch fresh data after operations like list deletion or sharing
+    
     try {
-      // Only show loading if we don't have any lists yet
-      if (memoizedLists.length === 0) {
+      // Only show loading if we don't have any lists yet or forcing a refresh
+      if (memoizedLists.length === 0 || force) {
         setListsLoading(true);
       }
       
@@ -138,6 +136,9 @@ export const useGroceryLists = (user) => {
           setCurrentList(null);
         }
       }
+      
+      // Return success for promise chaining
+      return { success: true };
     } catch (error) {
       console.error("Error deleting list:", error);
       throw error;

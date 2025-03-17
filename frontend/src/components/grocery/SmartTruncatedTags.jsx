@@ -38,7 +38,10 @@ const SmartTruncatedTags = ({ tags, onTagClick, onEditItem }) => {
       {displayTags.map((tag, index) => (
         <button
           key={`${tag.text || 'ellipsis'}-${index}`}
-          onClick={() => {
+          onClick={(e) => {
+            // Prevent event from bubbling up to parent elements
+            e.stopPropagation();
+            
             if (tag.isEllipsis) {
               onEditItem && onEditItem();
             } else {

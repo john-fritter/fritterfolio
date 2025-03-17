@@ -291,6 +291,67 @@ app.post('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
 
     const newItem = insertResult.rows[0];
 
+    // Check if this is a shared list, and if so, add the item to the other user's master list
+    await db.query('BEGIN');
+    try {
+      // Check if this list is shared
+      const shareQuery = await db.query(`
+        SELECT * FROM shared_lists
+        WHERE list_id = $1 AND (owner_id = $2 OR shared_with_id = $2)
+        AND status = 'accepted'
+      `, [listId, userId]);
+      
+      if (shareQuery.rows.length > 0) {
+        const shareInfo = shareQuery.rows[0];
+        
+        // Determine the other user ID (the one who should get this in their master list)
+        const otherUserId = shareInfo.owner_id === userId 
+          ? shareInfo.shared_with_id   // This user is the owner, so other user is the recipient
+          : shareInfo.owner_id;        // This user is the recipient, so other user is the owner
+          
+        if (otherUserId) {
+          // Get or create the other user's master list
+          let masterListResult = await db.query(
+            'SELECT id FROM master_lists WHERE user_id = $1',
+            [otherUserId]
+          );
+          
+          let masterListId;
+          
+          if (masterListResult.rows.length === 0) {
+            // Create master list for this user
+            const newMasterList = await db.query(
+              'INSERT INTO master_lists (user_id) VALUES ($1) RETURNING id',
+              [otherUserId]
+            );
+            masterListId = newMasterList.rows[0].id;
+          } else {
+            masterListId = masterListResult.rows[0].id;
+          }
+          
+          // Check if item already exists in the master list (case insensitive)
+          const duplicateMasterCheck = await db.query(`
+            SELECT id FROM master_list_items 
+            WHERE master_list_id = $1 AND LOWER(name) = LOWER($2)
+          `, [masterListId, name.trim()]);
+          
+          // If no duplicate, add to master list
+          if (duplicateMasterCheck.rows.length === 0) {
+            await db.query(
+              'INSERT INTO master_list_items (master_list_id, name) VALUES ($1, $2)',
+              [masterListId, name.trim()]
+            );
+          }
+        }
+      }
+      
+      await db.query('COMMIT');
+    } catch (error) {
+      await db.query('ROLLBACK');
+      console.error('Error adding item to other user\'s master list:', error);
+      // Continue without failing the original operation
+    }
+
     res.status(201).json({
       ...newItem,
       tags: []
@@ -917,6 +978,55 @@ app.put('/api/shared-lists/:shareId', authenticate, async (req, res) => {
           'UPDATE shared_lists SET shared_with_id = $1 WHERE id = $2',
           [req.user.id, shareId]
         );
+        
+        // When accepting a shared list, add all its items to the user's master list
+        // First get or create user's master list
+        let masterListResult = await db.query(
+          'SELECT id FROM master_lists WHERE user_id = $1',
+          [req.user.id]
+        );
+        
+        let masterListId;
+        
+        if (masterListResult.rows.length === 0) {
+          // Create master list for this user
+          const newMasterList = await db.query(
+            'INSERT INTO master_lists (user_id) VALUES ($1) RETURNING id',
+            [req.user.id]
+          );
+          masterListId = newMasterList.rows[0].id;
+        } else {
+          masterListId = masterListResult.rows[0].id;
+        }
+        
+        // Get all items from the shared list
+        const listItemsResult = await db.query(
+          'SELECT id, name FROM grocery_items WHERE list_id = $1',
+          [share.list_id]
+        );
+        
+        // Get all existing master list item names for duplicate checking
+        const existingMasterItems = await db.query(
+          'SELECT LOWER(name) as name FROM master_list_items WHERE master_list_id = $1',
+          [masterListId]
+        );
+        
+        const existingMasterItemNames = new Set(
+          existingMasterItems.rows.map(item => item.name)
+        );
+        
+        // Add items from shared list to master list if they don't already exist
+        for (const item of listItemsResult.rows) {
+          const normalizedName = item.name.toLowerCase().trim();
+          
+          if (!existingMasterItemNames.has(normalizedName)) {
+            await db.query(
+              'INSERT INTO master_list_items (master_list_id, name) VALUES ($1, $2)',
+              [masterListId, item.name]
+            );
+            existingMasterItemNames.add(normalizedName);
+          }
+        }
       } else if (status === 'rejected') {
         // If rejected, update the list to mark it as not shared
         await db.query(
@@ -997,6 +1107,69 @@ app.get('/api/shared-lists/accepted', authenticate, async (req, res) => {
       ...list,
       items: Array.isArray(list.items) ? list.items : []
     }));
+    
+    // Get or create master list for this user
+    let masterListResult = await db.query(
+      'SELECT id FROM master_lists WHERE user_id = $1',
+      [req.user.id]
+    );
+    
+    let masterListId;
+    
+    if (masterListResult.rows.length === 0) {
+      // Create master list for this user
+      try {
+        const newMasterList = await db.query(
+          'INSERT INTO master_lists (user_id) VALUES ($1) RETURNING id',
+          [req.user.id]
+        );
+        masterListId = newMasterList.rows[0].id;
+      } catch (error) {
+        console.error("Error creating master list:", error);
+        // Continue without failing the operation
+      }
+    } else {
+      masterListId = masterListResult.rows[0].id;
+    }
+    
+    if (masterListId) {
+      // Get all existing master list item names in lowercase for efficient lookup
+      const existingMasterItems = await db.query(
+        'SELECT LOWER(name) as name FROM master_list_items WHERE master_list_id = $1',
+        [masterListId]
+      );
+      
+      const existingMasterItemNames = new Set(
+        existingMasterItems.rows.map(item => item.name)
+      );
+      
+      // For each shared list, add its items to the master list if they don't exist
+      await db.query('BEGIN');
+      try {
+        for (const list of sharedLists) {
+          if (list.items && list.items.length > 0) {
+            for (const item of list.items) {
+              const normalizedName = item.name.toLowerCase().trim();
+              
+              // Skip if the item already exists in the master list
+              if (!existingMasterItemNames.has(normalizedName)) {
+                await db.query(
+                  'INSERT INTO master_list_items (master_list_id, name) VALUES ($1, $2)',
+                  [masterListId, item.name.trim()]
+                );
+                // Add to our local cache to prevent duplicate inserts
+                existingMasterItemNames.add(normalizedName);
+              }
+            }
+          }
+        }
+        await db.query('COMMIT');
+      } catch (error) {
+        await db.query('ROLLBACK');
+        console.error("Error syncing shared list items to master list:", error);
+        // Continue without failing the operation
+      }
+    }
     
     res.json(sharedLists);
   } catch (err) {

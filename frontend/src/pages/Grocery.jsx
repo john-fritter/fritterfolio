@@ -35,6 +35,11 @@ export default function Grocery() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const newItemInputRef = useRef(null);
+  
+  // Add isInitializing state to track initialization process
+  const [isInitializing, setIsInitializing] = useState(true);
+  // Add state to track what should be rendered during initialization
+  const [initialView, setInitialView] = useState(null);
 
   // Use our custom hooks
   const {
@@ -81,7 +86,9 @@ export default function Grocery() {
     shareList: shareListWithUser,
     acceptShare,
     rejectShare,
-    fetchAcceptedShares
+    fetchAcceptedShares,
+    syncNotification,
+    clearSyncNotification
   } = useListSharing(user);
 
   // Local state
@@ -98,6 +105,36 @@ export default function Grocery() {
   const [allTags, setAllTags] = useState([]);
   const [currentTagFilter, setCurrentTagFilter] = useState(null);
   const [showTagFilterModal, setShowTagFilterModal] = useState(false);
+  
+  // Ref to track if initial data has been loaded
+  const initialLoadRef = useRef(true);
+
+  // Helper function to find a list by ID in both own lists and shared lists
+  const findListById = useCallback((listId, ownLists = [], sharedLists = []) => {
+    if (!listId) return null;
+    
+    const parsedId = parseInt(listId);
+    
+    // First check own lists
+    let targetList = ownLists.find(list => list.id === parsedId);
+    
+    // Then check shared lists
+    if (!targetList && Array.isArray(sharedLists) && sharedLists.length > 0) {
+      const sharedMatch = sharedLists.find(share => share.list_id === parsedId);
+      if (sharedMatch) {
+        targetList = {
+          id: sharedMatch.list_id,
+          name: sharedMatch.list_name,
+          is_shared: true,
+          shared_with_email: sharedMatch.owner_email,
+          is_received_share: true,
+          items: sharedMatch.items || []
+        };
+      }
+    }
+    
+    return targetList;
+  }, []);
 
   // First effect: Handle authentication redirect
   useEffect(() => {
@@ -114,48 +151,159 @@ export default function Grocery() {
     if (!user || authLoading) return;
     
     const loadInitialData = async () => {
-      // Set initial view from localStorage
-      const savedView = localStorage.getItem('groceryView') || VIEWS.LISTS;
-      setView(savedView);
+      if (!initialLoadRef.current) return; // Skip if already initialized
       
-      // Start fetches in parallel for better performance
-      const listsPromise = fetchGroceryLists();
-      const sharesPromise = fetchAcceptedShares();
-      const tagsPromise = api.getTags().catch(error => {
-        console.error('Error fetching tags:', error);
-        return [];
-      });
+      // Start initialization - keep the app in loading state
+      setIsInitializing(true);
+      console.log('INIT: Starting initial data load');
       
-      // Add master list fetch if needed
-      const fetchPromises = [listsPromise, sharesPromise, tagsPromise];
-      if (savedView === VIEWS.MASTER) {
-        fetchPromises.push(fetchMasterList());
-      }
+      // Immediately set initialLoadRef to false to prevent rerunning
+      initialLoadRef.current = false;
       
-      // Wait for all fetches to complete
-      const [lists, , tags] = await Promise.all(fetchPromises);
-      
-      // Set tags
-      setAllTags(tags);
-      
-      // Handle list selection
-      if (lists.length > 0) {
+      try {
+        // Get saved data from localStorage
+        const savedView = localStorage.getItem('groceryView') || VIEWS.LISTS;
         const savedListId = localStorage.getItem('currentListId');
-        if (savedListId) {
-          const savedList = lists.find(list => list.id === parseInt(savedListId));
-          if (savedList) {
-            setCurrentList(savedList);
-          } else {
-            setCurrentList(lists[0]);
+        console.log('INIT: Loading with saved list ID:', savedListId, 'view:', savedView);
+        
+        // Set initial view to preserve what we're initializing to
+        // This prevents showing lists view during initialization
+        setInitialView(savedView);
+        
+        // Load lists and shares in parallel before trying to restore saved list
+        console.log('INIT: Fetching grocery lists and shares');
+        
+        const [ownLists, sharedLists, tags] = await Promise.all([
+          fetchGroceryLists(),
+          fetchAcceptedShares(),
+          api.getTags().catch(() => [])
+        ]);
+        
+        // Set tags
+        setAllTags(tags);
+        
+        // Define a function to set the correct final state based on saved data
+        const finalizeInitialization = (finalView) => {
+          console.log(`INIT: Finalizing initialization with view: ${finalView}`);
+          
+          // First set localStorage values to ensure persistence
+          // Setting these outside the initialization effect prevents double updates
+          localStorage.setItem('groceryView', finalView);
+          
+          // Safely access currentList.id only if currentList exists
+          if (currentList?.id) {
+            localStorage.setItem('currentListId', currentList.id.toString());
           }
+          
+          // Set the view we've determined is correct
+          setView(finalView);
+          
+          // After initialization is complete, reveal the UI
+          // This is done last to ensure all other updates have been applied
+          console.log('INIT: Initialization complete');
+          setIsInitializing(false);
+          setInitialView(null);
+        };
+        
+        // After lists are loaded, try to restore saved list
+        if (savedListId && savedView === VIEWS.LIST) {
+          console.log('INIT: Trying to restore list for LIST view');
+          
+          // Use the helper function to find the list by ID
+          const targetList = findListById(savedListId, ownLists, sharedLists);
+          
+          if (targetList) {
+            // Found the saved list - set up list view
+            console.log('INIT: Restored list:', targetList.name);
+            
+            // Instead of immediately setting states, first fetch items
+            // and THEN batch the state updates to reduce renders
+            console.log('INIT: Fetching items for restored list');
+            fetchItems(targetList.id, true)
+              .then((fetchedItems) => {
+                // Only now set current list and then finalize
+                console.log('INIT: Items fetched, finalizing initialization with', fetchedItems.length, 'items');
+                
+                // Batch our state updates
+                // First set the current list
+                setCurrentList(targetList);
+                
+                // Then finalize initialization
+                // This avoids the extra render by setting everything at once
+                finalizeInitialization(VIEWS.LIST);
+              })
+              .catch((error) => {
+                console.error('Error fetching items:', error);
+                setCurrentList(targetList);
+                finalizeInitialization(VIEWS.LIST);
+              });
+          } else {
+            // List not found, fall back to lists view
+            console.log('INIT: Saved list not found, falling back to lists view');
+            
+            if (ownLists.length > 0) {
+              setCurrentList(ownLists[0]);
+            }
+            
+            finalizeInitialization(VIEWS.LISTS);
+          }
+        } else if (savedView === VIEWS.MASTER) {
+          // Master view - load master list
+          console.log('INIT: Setting up MASTER view');
+          
+          // Try to restore the saved list if it exists
+          const targetList = findListById(savedListId, ownLists, sharedLists);
+          
+          if (targetList) {
+            console.log('INIT: Restored current list for MASTER view:', targetList.name);
+            setCurrentList(targetList);
+          } else if (ownLists.length > 0) {
+            // Fallback to first list if target not found
+            console.log('INIT: List not found or no saved ID, using first list for MASTER view');
+            setCurrentList(ownLists[0]);
+          }
+          
+          // Fetch master list and then finalize initialization with MASTER view
+          fetchMasterList()
+            .then(() => {
+              finalizeInitialization(VIEWS.MASTER);
+            })
+            .catch((error) => {
+              console.error('Error fetching master list:', error);
+              finalizeInitialization(VIEWS.MASTER);
+            });
         } else {
-          setCurrentList(lists[0]);
+          // Default to lists view
+          console.log('INIT: Setting up LISTS view');
+          
+          // Try to restore the saved list if it exists
+          const targetList = findListById(savedListId, ownLists, sharedLists);
+          
+          if (targetList) {
+            console.log('INIT: Restored current list for LISTS view:', targetList.name);
+            setCurrentList(targetList);
+          } else if (ownLists.length > 0) {
+            // Fallback to first list if target not found
+            console.log('INIT: List not found or no saved ID, using first list for LISTS view');
+            setCurrentList(ownLists[0]);
+          }
+          
+          finalizeInitialization(VIEWS.LISTS);
         }
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+        // In case of error, still finish initializing but reset the ref
+        setIsInitializing(false);
+        setInitialView(null);
+        setView(VIEWS.LISTS); // Default to lists view on error
+        initialLoadRef.current = true;
       }
     };
     
     loadInitialData();
-  }, [user, authLoading, fetchGroceryLists, fetchAcceptedShares, fetchMasterList, setCurrentList]);
+    
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, fetchGroceryLists, fetchAcceptedShares, fetchMasterList, fetchItems, findListById]);
 
   // Third effect: Load view-specific data
   useEffect(() => {
@@ -168,17 +316,37 @@ export default function Grocery() {
 
   // Save view to localStorage
   useEffect(() => {
+    // Skip localStorage updates during initialization
+    if (isInitializing) return;
+    
+    console.log('View changed to:', view);
     localStorage.setItem('groceryView', view);
-  }, [view]);
+    
+    // If we're in list view but don't have a list, try to fall back to lists view
+    // Only do this after initialization is complete
+    if (view === VIEWS.LIST && !currentList && !isInitializing) {
+      console.log('In list view but no list selected, falling back to lists view');
+      setView(VIEWS.LISTS);
+    }
+  }, [view, currentList, setView, isInitializing]);
 
   // Save current list ID to localStorage
   useEffect(() => {
+    // Skip localStorage updates during initialization to prevent redundant state changes
+    if (isInitializing) {
+      console.log('Skipping localStorage update during initialization');
+      return;
+    }
+    
+    // Only run if currentList is defined and has changed
     if (currentList?.id) {
+      console.log('Saving current list ID to localStorage:', currentList.id);
       localStorage.setItem('currentListId', currentList.id.toString());
-    } else {
+    } else if (currentList === null) {
+      // Only remove if explicitly null (not just undefined during initial load)
       localStorage.removeItem('currentListId');
     }
-  }, [currentList?.id]);
+  }, [currentList, isInitializing]);
 
   // Keep new item input focused
   useEffect(() => {
@@ -189,29 +357,30 @@ export default function Grocery() {
 
   // Derived state for loading conditions
   const determineLoadingState = useCallback(() => {
+    // Always show loading during initialization
+    if (isInitializing) {
+      return true;
+    }
+    
     // For lists view, only show loading on initial fetch with no data
     if (view === VIEWS.LISTS) {
       return (listsLoading && groceryLists.length === 0) || 
              (sharingLoading && acceptedShares.length === 0);
     }
     
-    // For list view, only show loading when we have no items
+    // For list view, consider it loading if we're currently fetching items
+    // This prevents flickering by showing a loading state during refetches
     if (view === VIEWS.LIST) {
-      return itemsLoading && items.length === 0;
+      return itemsLoading;
     }
     
     // For master view, only show loading when we have no items
     return masterLoading && (!masterList || !masterList.items || masterList.items.length === 0);
-  }, [
-    view, 
-    listsLoading, groceryLists.length,
-    sharingLoading, acceptedShares.length,
-    itemsLoading, items.length,
-    masterLoading, masterList
-  ]);
+  }, [isInitializing, view, listsLoading, groceryLists.length, sharingLoading, acceptedShares.length, itemsLoading, masterLoading, masterList]);
 
   // Combine accepted shares with grocery lists
   const combinedLists = useMemo(() => {
+    // Format shared lists with all necessary properties
     const sharedListsFormatted = acceptedShares.map(share => ({
       id: share.list_id,
       name: share.list_name,
@@ -221,15 +390,70 @@ export default function Grocery() {
       is_received_share: true
     }));
 
-    return [...groceryLists, ...sharedListsFormatted];
+    // Make sure own lists have consistent properties
+    const ownListsFormatted = groceryLists.map(list => ({
+      ...list,
+      is_received_share: false, // explicitly mark as not a received share
+      items: Array.isArray(list.items) ? list.items : []
+    }));
+
+    return [...ownListsFormatted, ...sharedListsFormatted];
   }, [groceryLists, acceptedShares]);
 
-  // Handle list selection
+  // Handle list selection - very important for navigation between views
   const selectList = useCallback((list) => {
-    console.log('Selecting list:', list.name);
-    setCurrentList(list);
-    setView(VIEWS.LIST);
-  }, [setCurrentList]);
+    if (!list || !list.id) {
+      console.error('Cannot select list: Invalid list data received', list);
+      return;
+    }
+    console.log('Selecting list:', list.name, 'ID:', list.id);
+    
+    try {
+      // Show loading state during transition and set the initial view to LIST
+      // This prevents flickering through lists view
+      setIsInitializing(true);
+      setInitialView(VIEWS.LIST);
+      
+      // Fetch items first, before changing any state
+      // This improves performance by reducing state updates
+      console.log('Fetching items for list:', list.id);
+      fetchItems(list.id, true)
+        .then(() => {
+          // After items are loaded, batch update all the states
+          console.log('Items loaded, updating state for list:', list.name);
+          
+          // Update localStorage
+          localStorage.setItem('currentListId', list.id.toString());
+          localStorage.setItem('groceryView', VIEWS.LIST);
+          
+          // Update app state
+          setCurrentList(list);
+          setView(VIEWS.LIST);
+          
+          // End loading state only after everything is updated
+          console.log('List selection complete');
+          setIsInitializing(false);
+          setInitialView(null);
+        })
+        .catch((error) => {
+          console.error('Error fetching items:', error);
+          
+          // Still update state even if fetch fails
+          localStorage.setItem('currentListId', list.id.toString());
+          localStorage.setItem('groceryView', VIEWS.LIST);
+          
+          setCurrentList(list);
+          setView(VIEWS.LIST);
+          
+          setIsInitializing(false);
+          setInitialView(null);
+        });
+    } catch (error) {
+      console.error('Error during list selection:', error);
+      setIsInitializing(false);
+      setInitialView(null);
+    }
+  }, [setView, setCurrentList, fetchItems, setIsInitializing, setInitialView]);
 
   // Handle list creation
   const handleCreateList = async (e) => {
@@ -246,14 +470,30 @@ export default function Grocery() {
     }
 
     try {
-      await createList(newListName);
+      // Show loading during list creation and set initial view to LIST
+      setIsInitializing(true);
+      setInitialView(VIEWS.LIST);
+      
+      const newList = await createList(newListName);
       setNewListName('');
+      
+      // Update localStorage and state
+      localStorage.setItem('currentListId', newList.id.toString());
+      localStorage.setItem('groceryView', VIEWS.LIST);
+      
+      // Set view to LIST
       setView(VIEWS.LIST);
+      
+      // End loading state
+      setIsInitializing(false);
+      setInitialView(null);
     } catch {
       setNotification({
         message: "Failed to create list",
         type: "error"
       });
+      setIsInitializing(false);
+      setInitialView(null);
     }
   };
 
@@ -265,12 +505,21 @@ export default function Grocery() {
       const result = await shareListWithUser(currentList.id, email);
       
       if (result) {
+        // Update the current list to mark it as shared
+        setCurrentList(prevList => ({ 
+          ...prevList, 
+          is_shared: true,
+          shared_with_email: email 
+        }));
+        
+        // Show success notification
         setNotification({
           message: `List shared with ${email}`,
           type: "success"
         });
         
-        await fetchGroceryLists();
+        // Refresh the lists
+        await fetchGroceryLists(true);
       }
     } catch {
       setNotification({
@@ -283,13 +532,31 @@ export default function Grocery() {
   // Handle accepting a shared list
   const handleAcceptShare = async (shareId) => {
     try {
-      const result = await acceptShare(shareId);
+      const acceptedShares = await acceptShare(shareId);
       
-      if (result) {
+      if (acceptedShares) {
+        // Force refresh grocery lists to ensure UI is up to date
+        await fetchGroceryLists(true);
+        
         setNotification({
           message: "Shared list accepted",
           type: "success"
         });
+        
+        // If we don't have a current list selected, select the most recently accepted one
+        if (!currentList && acceptedShares.length > 0) {
+          const mostRecentShare = acceptedShares[0];
+          const newListData = {
+            id: mostRecentShare.list_id,
+            name: mostRecentShare.list_name,
+            is_shared: true,
+            shared_with_email: mostRecentShare.owner_email,
+            is_received_share: true,
+            items: mostRecentShare.items || []
+          };
+          setCurrentList(newListData);
+          setView(VIEWS.LIST);
+        }
       }
     } catch {
       setNotification({
@@ -357,8 +624,54 @@ export default function Grocery() {
     }
   };
 
+  // Handle list deletion with notification
+  const handleDeleteList = useCallback((listId) => {
+    if (window.confirm('Are you sure you want to delete this list?')) {
+      deleteList(listId)
+        .then(() => {
+          // Force refresh grocery lists after deletion
+          fetchGroceryLists(true)
+            .then(() => {
+              setNotification({
+                message: "List deleted successfully",
+                type: "success"
+              });
+            });
+        })
+        .catch(() => {
+          setNotification({
+            message: "Failed to delete the list. Please try again.",
+            type: "error"
+          });
+        });
+    }
+  }, [deleteList, fetchGroceryLists, setNotification]);
+
+  // Handle sharing a list from lists view
+  const handleShareListFromListsView = useCallback((listId) => {
+    // Find the list to set it as current list temporarily 
+    const listToShare = groceryLists.find(list => list.id === listId);
+    
+    // Only proceed if the list exists and is not already shared
+    if (listToShare && !listToShare.is_shared) {
+      setCurrentList(listToShare);
+      setShowShareModal(true);
+    } else if (listToShare && listToShare.is_shared) {
+      // If list is already shared, show message
+      setNotification({
+        message: "This list is already shared",
+        type: "info"
+      });
+    }
+  }, [groceryLists, setCurrentList, setNotification]);
+
   // Menu items for each view
   const getMenuItems = useCallback(() => {
+    // During initialization, don't show any menu items
+    if (isInitializing) {
+      return [];
+    }
+    
     const baseItems = [
       { 
         label: "Lists View",
@@ -368,8 +681,15 @@ export default function Grocery() {
       { 
         label: "Master List",
         action: () => {
-          fetchMasterList();
-          setView(VIEWS.MASTER);
+          setIsInitializing(true);
+          fetchMasterList()
+            .then(() => {
+              setView(VIEWS.MASTER);
+              setIsInitializing(false);
+            })
+            .catch(() => {
+              setIsInitializing(false);
+            });
         },
         show: view !== VIEWS.MASTER
       },
@@ -377,8 +697,15 @@ export default function Grocery() {
         label: currentList ? `View ${currentList.name}` : "Current List",
         action: () => {
           if (currentList) {
-            fetchItems(currentList.id);
-            setView(VIEWS.LIST);
+            setIsInitializing(true);
+            fetchItems(currentList.id, true)
+              .then(() => {
+                setView(VIEWS.LIST);
+                setIsInitializing(false);
+              })
+              .catch(() => {
+                setIsInitializing(false);
+              });
           }
         },
         show: view !== VIEWS.LIST && currentList !== null
@@ -403,6 +730,9 @@ export default function Grocery() {
         label: "Add Selected to Current List", 
         action: () => {
           if (!currentList) return;
+          // Ensure masterList exists before accessing its items
+          if (!masterList?.items) return;
+          
           const selectedMasterItems = masterList.items.filter(item => item.completed);
           
           if (selectedMasterItems.length === 0) {
@@ -527,7 +857,7 @@ export default function Grocery() {
       ...masterViewItems,
       deleteSelectedItems
     ];
-  }, [view, currentList, items, masterList, fetchMasterList, fetchItems, addItem, addToMasterList, toggleMasterItem, deleteItem, deleteMasterItem]);
+  }, [isInitializing, view, currentList, items, masterList, fetchMasterList, fetchItems, addItem, addToMasterList, toggleMasterItem, deleteItem, deleteMasterItem]);
 
   // Handler for adding a new item to prevent duplicate master list entries
   const handleAddNewItem = useCallback(async () => {
@@ -549,17 +879,13 @@ export default function Grocery() {
     try {
       // First check if the item already exists in the master list to avoid duplicates
       const normalizedName = itemToAdd.toLowerCase();
+      // Safely check masterList and its items
       const existsInMasterList = masterList?.items?.some(item => 
         item.name.toLowerCase().trim() === normalizedName
-      );
+      ) || false;
       
-      // Add to current list
-      await addItem(itemToAdd);
-      
-      // Only add to master list if it doesn't already exist there
-      if (!existsInMasterList) {
-        await addToMasterList(itemToAdd);
-      }
+      // Add to current list and also to master list if needed
+      await addItem(itemToAdd, existsInMasterList ? null : addToMasterList);
     } catch (error) {
       setNotification({
         message: error.message || "Failed to add item",
@@ -641,6 +967,14 @@ export default function Grocery() {
           onClose={() => setNotification(null)} 
         />
       )}
+      
+      {syncNotification && (
+        <Notification 
+          message={syncNotification.message} 
+          type={syncNotification.type} 
+          onClose={clearSyncNotification} 
+        />
+      )}
 
       <div className="w-full max-w-3xl mx-auto px-2 sm:px-4 flex flex-col h-full min-w-0">
         {/* Show pending shares notification if there are any */}
@@ -655,12 +989,14 @@ export default function Grocery() {
         
         {/* Main Content */}
         <GroceryView
-          view={view}
+          // During initialization, use initialView if set, otherwise use view
+          view={initialView || view}
           // Lists view props
           combinedLists={combinedLists}
           selectList={selectList}
           setEditingList={setEditingList}
-          deleteList={deleteList}
+          deleteList={handleDeleteList}
+          onShareList={handleShareListFromListsView}
           // List view props
           items={items}
           currentList={currentList}
@@ -703,9 +1039,12 @@ export default function Grocery() {
         isOpen={showListSelection}
         lists={groceryLists}
         onSelect={(listId) => {
-          const targetList = groceryLists.find(l => l.id === listId);
+          // Find the list using the helper function
+          const targetList = findListById(listId, groceryLists, acceptedShares);
           if (targetList) {
             selectList(targetList);
+          } else {
+            console.error('Could not find list with ID:', listId);
           }
           setShowListSelection(false);
         }}

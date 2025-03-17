@@ -9,42 +9,66 @@ export const useGroceryItems = (listId, updateListCount) => {
   const [lastFetchedListId, setLastFetchedListId] = useState(null);
 
   // Fetch items for a specific list
-  const fetchItems = useCallback(async (force = false) => {
-    if (!listId) {
+  const fetchItems = useCallback(async (targetListId = listId, force = false) => {
+    // If no ID provided and no current listId, clear items
+    if (!targetListId) {
       setItems([]);
       setLastFetchedListId(null);
       return;
     }
 
-    // Skip if not forced and we already have items for this list
-    if (!force && lastFetchedListId === listId) {
-      return;
+    // Skip fetch if we already have items for this list and not forcing
+    const listIdToUse = targetListId || listId;
+    
+    if (!force && lastFetchedListId === listIdToUse && items.length > 0) {
+      console.log('Skipping items fetch - already loaded for list:', listIdToUse);
+      return items;
     }
   
     try {
+      console.log('Fetching items for list:', listIdToUse);
       setItemsLoading(true);
-      const fetchedItems = await api.getGroceryItems(listId);
+      const fetchedItems = await api.getGroceryItems(listIdToUse);
       const itemsArray = Array.isArray(fetchedItems) ? fetchedItems : [];
       setItems(itemsArray);
-      setLastFetchedListId(listId);
+      setLastFetchedListId(listIdToUse);
+      return itemsArray;
     } catch (error) {
       console.error("Error fetching list items:", error);
       setItems([]);
       setLastFetchedListId(null);
+      return [];
     } finally {
       setItemsLoading(false);
     }
-  }, [listId, lastFetchedListId]);
+  }, [listId, lastFetchedListId, items]);
 
   // Effect to fetch items when listId changes
   useEffect(() => {
-    if (listId !== lastFetchedListId) {
-      fetchItems();
+    // Only fetch when listId exists, has changed, and we're not already loading
+    if (listId && !itemsLoading) {
+      // We need to handle three cases:
+      // 1. Initial load (lastFetchedListId is null)
+      // 2. List ID changed to a different list
+      // 3. We already fetched this list and should skip
+      
+      if (lastFetchedListId === null) {
+        // Initial load - fetch with no force flag
+        console.log('Initial fetch for list:', listId);
+        fetchItems(listId, false);
+      } else if (lastFetchedListId !== listId) {
+        // List ID changed - fetch the new list
+        console.log('List ID changed, fetching new list:', listId);
+        fetchItems(listId, false);
+      } else {
+        // Same list ID, already fetched - skip to prevent flickering
+        console.log('Skipping duplicate fetch for same list:', listId);
+      }
     }
-  }, [listId, lastFetchedListId, fetchItems]);
+  }, [listId, lastFetchedListId, fetchItems, itemsLoading]);
 
   // Add a new item with debounce protection
-  const addItem = async (name) => {
+  const addItem = async (name, addToMasterListFn = null) => {
     if (!name.trim() || !listId || isAdding) return;
     
     try {
@@ -63,6 +87,17 @@ export const useGroceryItems = (listId, updateListCount) => {
       if (updateListCount) {
         updateListCount(listId, 1);
       }
+      
+      // Also add to master list if a function is provided
+      if (addToMasterListFn && typeof addToMasterListFn === 'function') {
+        try {
+          await addToMasterListFn(name);
+        } catch (error) {
+          console.error("Error adding to master list:", error);
+          // Don't fail the whole operation if master list add fails
+        }
+      }
+      
       return newItemObj;
     } catch (error) {
       console.error("Error adding item:", error);

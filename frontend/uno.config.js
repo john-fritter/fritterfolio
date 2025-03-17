@@ -22,6 +22,21 @@ export default defineConfig({
     fontFamily: {
       sans: ['Inter', 'sans-serif'],
     },
+    // Add animation keyframes
+    animation: {
+      'fade-in': 'fadeIn 0.4s ease-out forwards',
+      'fade-out': 'fadeOut 0.3s ease-in forwards',
+    },
+    keyframes: {
+      fadeIn: {
+        '0%': { opacity: '0' },
+        '100%': { opacity: '1' },
+      },
+      fadeOut: {
+        '0%': { opacity: '1' },
+        '100%': { opacity: '0' },
+      },
+    },
   },
   shortcuts: [
     ['app-bg', 'bg-background dark:bg-dark-background shadow-none border-none'],
@@ -29,6 +44,7 @@ export default defineConfig({
     ['text-secondary-dm', 'text-secondary dark:text-dark-secondary'],
     ['text-accent-dm', 'text-accent dark:text-dark-accent'],
     ['hover-highlight-dm', 'hover:text-highlight dark:hover:text-dark-highlight'],
+    ['animate-fade-in', 'opacity-0 animate-fade-in'], // Shortcut for fade-in animation
   ],
   safelist: [
     'text-primary',
@@ -40,5 +56,13 @@ export default defineConfig({
     'bg-background',
     'text-highlight',
     'bg-highlight',
+    'text-gray-400',
+    'text-blue-500',
+    'text-green-500',
+    'text-red-500',
+    'animate-fade-in',
+    'animate-fade-out',
+    'transition-opacity',
+    'duration-300'
   ]
 });
