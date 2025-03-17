@@ -28,6 +28,9 @@ const VIEWS = {
   LISTS: 'lists'
 };
 
+// Constants
+const MAX_NAME_LENGTH = 30;
+
 export default function Grocery() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -232,6 +235,15 @@ export default function Grocery() {
   const handleCreateList = async (e) => {
     e.preventDefault();
     if (!newListName.trim()) return;
+    
+    // Check for character limit
+    if (newListName.trim().length > MAX_NAME_LENGTH) {
+      setNotification({
+        message: `List name cannot exceed ${MAX_NAME_LENGTH} characters`,
+        type: "error"
+      });
+      return;
+    }
 
     try {
       await createList(newListName);
@@ -521,6 +533,15 @@ export default function Grocery() {
   const handleAddNewItem = useCallback(async () => {
     if (!newItem.trim()) return;
     
+    // Check for character limit
+    if (newItem.trim().length > MAX_NAME_LENGTH) {
+      setNotification({
+        message: `Item name cannot exceed ${MAX_NAME_LENGTH} characters`,
+        type: "error"
+      });
+      return;
+    }
+    
     // Track if we're in the process of adding to prevent duplicates
     const itemToAdd = newItem.trim();
     setNewItem(''); // Clear input immediately to prevent double submissions
@@ -547,7 +568,7 @@ export default function Grocery() {
       // Restore the input value if there was an error
       setNewItem(itemToAdd);
     }
-  }, [newItem, addItem, addToMasterList, masterList, setNotification]);
+  }, [newItem, setNewItem, addItem, addToMasterList, masterList, setNotification]);
 
   // Create add item form
   const addItemForm = view === VIEWS.LIST && (
@@ -565,6 +586,7 @@ export default function Grocery() {
             placeholder="Add new item..."
             value={newItem}
             onChange={(e) => setNewItem(e.target.value)}
+            maxLength={MAX_NAME_LENGTH}
             style={{ fontFamily: 'inherit' }}
             className="w-full py-2 bg-transparent text-lg font-light font-sans text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
           />
@@ -593,6 +615,7 @@ export default function Grocery() {
             placeholder="New list name..."
             value={newListName}
             onChange={(e) => setNewListName(e.target.value)}
+            maxLength={MAX_NAME_LENGTH}
             style={{ fontFamily: 'inherit' }}
             className="w-full py-2 bg-transparent text-lg font-light font-sans text-secondary-dm placeholder:text-secondary-dm/30 border-b border-transparent focus:border-primary focus:outline-none transition-colors"
           />

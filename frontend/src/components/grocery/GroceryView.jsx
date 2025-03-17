@@ -229,6 +229,7 @@ export default function GroceryView({
                         <SmartTruncatedTags 
                           tags={item.tags} 
                           onTagClick={setCurrentTagFilter}
+                          onEditItem={() => setEditingItem(item)}
                         />
                       )}
                     </div>

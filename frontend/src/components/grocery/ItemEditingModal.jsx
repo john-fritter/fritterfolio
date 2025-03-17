@@ -12,6 +12,10 @@ const TAG_COLORS = [
   { name: 'teal', bg: 'bg-teal-100 dark:bg-teal-900', text: 'text-teal-800 dark:text-teal-200' },
 ];
 
+// Constants
+const MAX_NAME_LENGTH = 30;
+const MAX_TAG_LENGTH = 8;
+
 const Tag = ({ text, color, onRemove }) => (
   <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full ${color ? `bg-${color}-100 dark:bg-${color}-900 text-${color}-800 dark:text-${color}-200` : ''} mr-2 mb-2`}>
     <span className="text-sm">{text}</span>
@@ -89,8 +93,8 @@ const ItemEditingModal = ({ isOpen, itemName, tags = [], allTags = [], onSave, o
 
   const handleAddTag = () => {
     if (!newTagText.trim()) return;
-    if (newTagText.length > 8) {
-      setError('Tag must be 8 characters or less');
+    if (newTagText.length > MAX_TAG_LENGTH) {
+      setError(`Tag must be ${MAX_TAG_LENGTH} characters or less`);
       return;
     }
     
@@ -113,6 +117,11 @@ const ItemEditingModal = ({ isOpen, itemName, tags = [], allTags = [], onSave, o
     
     if (!newName.trim()) {
       setError('Item name cannot be empty');
+      return;
+    }
+    
+    if (newName.trim().length > MAX_NAME_LENGTH) {
+      setError(`Item name cannot exceed ${MAX_NAME_LENGTH} characters`);
       return;
     }
 
@@ -140,16 +149,20 @@ const ItemEditingModal = ({ isOpen, itemName, tags = [], allTags = [], onSave, o
               htmlFor="itemName" 
               className="block text-sm font-medium text-secondary-dm mb-1"
             >
-              Item Name
+              Item Name (max {MAX_NAME_LENGTH} characters)
             </label>
             <input
               id="itemName"
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
+              maxLength={MAX_NAME_LENGTH}
               className="w-full p-2 border border-gray-300 dark:border-gray-700 rounded bg-transparent text-secondary-dm"
               autoFocus
             />
+            <div className="text-xs text-gray-500 mt-1">
+              {newName.length}/{MAX_NAME_LENGTH}
+            </div>
           </div>
 
           {/* Current Tags */}
@@ -175,7 +188,7 @@ const ItemEditingModal = ({ isOpen, itemName, tags = [], allTags = [], onSave, o
               htmlFor="tag" 
               className="block text-sm font-medium text-secondary-dm mb-1"
             >
-              Add Tag (max 8 characters)
+              Add Tag (max {MAX_TAG_LENGTH} characters)
             </label>
             <div className="flex items-center gap-2">
               <input
@@ -186,7 +199,7 @@ const ItemEditingModal = ({ isOpen, itemName, tags = [], allTags = [], onSave, o
                   setNewTagText(e.target.value);
                   setShowPreview(true);
                 }}
-                maxLength={8}
+                maxLength={MAX_TAG_LENGTH}
                 className="flex-1 p-2 border border-gray-300 dark:border-gray-700 rounded bg-transparent text-secondary-dm"
               />
               <button
