@@ -517,21 +517,43 @@ export default function Grocery() {
     ];
   }, [view, currentList, items, masterList, fetchMasterList, fetchItems, addItem, addToMasterList, toggleMasterItem, deleteItem, deleteMasterItem]);
 
+  // Handler for adding a new item to prevent duplicate master list entries
+  const handleAddNewItem = useCallback(async () => {
+    if (!newItem.trim()) return;
+    
+    // Track if we're in the process of adding to prevent duplicates
+    const itemToAdd = newItem.trim();
+    setNewItem(''); // Clear input immediately to prevent double submissions
+    
+    try {
+      // First check if the item already exists in the master list to avoid duplicates
+      const normalizedName = itemToAdd.toLowerCase();
+      const existsInMasterList = masterList?.items?.some(item => 
+        item.name.toLowerCase().trim() === normalizedName
+      );
+      
+      // Add to current list
+      await addItem(itemToAdd);
+      
+      // Only add to master list if it doesn't already exist there
+      if (!existsInMasterList) {
+        await addToMasterList(itemToAdd);
+      }
+    } catch (error) {
+      setNotification({
+        message: error.message || "Failed to add item",
+        type: "error"
+      });
+      // Restore the input value if there was an error
+      setNewItem(itemToAdd);
+    }
+  }, [newItem, addItem, addToMasterList, masterList, setNotification]);
+
   // Create add item form
   const addItemForm = view === VIEWS.LIST && (
     <form onSubmit={(e) => {
       e.preventDefault();
-      if (newItem.trim()) {
-        addItem(newItem).then(() => {
-          addToMasterList(newItem);
-          setNewItem('');
-        }).catch(error => {
-          setNotification({
-            message: error.message || "Failed to add item",
-            type: "error"
-          });
-        });
-      }
+      handleAddNewItem();
     }}>
       <ListRow
         hover={false}
@@ -551,19 +573,7 @@ export default function Grocery() {
           <ActionButton
             title="Add item"
             icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />}
-            onClick={() => {
-              if (newItem.trim()) {
-                addItem(newItem).then(() => {
-                  addToMasterList(newItem);
-                  setNewItem('');
-                }).catch(error => {
-                  setNotification({
-                    message: error.message || "Failed to add item",
-                    type: "error"
-                  });
-                });
-              }
-            }}
+            onClick={handleAddNewItem}
             iconColor="text-green-500"
           />
         }

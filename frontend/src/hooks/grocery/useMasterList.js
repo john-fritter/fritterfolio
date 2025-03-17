@@ -53,20 +53,46 @@ export const useMasterList = (user) => {
     try {
       // Check if item already exists (case insensitive)
       const normalizedName = itemName.toLowerCase().trim();
-      const existingItem = masterList.items.find(item => 
+      
+      // More robust duplicate check - keep a local cache of recently added items to prevent UI duplication
+      const isDuplicateInUI = masterList.items.some(item => 
         item.name.toLowerCase().trim() === normalizedName
       );
       
-      if (!existingItem) {
-        const newMasterItem = await api.addMasterListItem(itemName);
-        setMasterList(prev => ({
-          ...prev,
-          items: [...prev.items, newMasterItem]
-        }));
-        return newMasterItem;
+      // If it exists in the current UI state, don't add it again
+      if (isDuplicateInUI) {
+        return masterList.items.find(item => 
+          item.name.toLowerCase().trim() === normalizedName
+        );
       }
       
-      return existingItem;
+      // Add the new item with optimistic update
+      const tempId = `temp-${Date.now()}`;
+      const optimisticItem = {
+        id: tempId,
+        name: itemName.trim(),
+        completed: false,
+        created_at: new Date().toISOString()
+      };
+      
+      // Update UI immediately (optimistic update)
+      setMasterList(prev => ({
+        ...prev,
+        items: [...prev.items, optimisticItem]
+      }));
+      
+      // Make the API call
+      const newMasterItem = await api.addMasterListItem(itemName);
+      
+      // Replace the optimistic item with the real one
+      setMasterList(prev => ({
+        ...prev,
+        items: prev.items.map(item => 
+          item.id === tempId ? newMasterItem : item
+        )
+      }));
+      
+      return newMasterItem;
     } catch (error) {
       console.error("Error adding to master list:", error);
       throw error;
