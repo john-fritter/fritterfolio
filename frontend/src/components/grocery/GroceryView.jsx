@@ -219,18 +219,20 @@ export default function GroceryView({
                 }
                 text={
                   cachedView === 'list' ? (
-                    <div className="relative w-full flex items-center gap-2 overflow-hidden">
-                      <div className="flex-none">
+                    <div className="relative w-full flex flex-col min-w-0">
+                      <div className="flex-none truncate">
                         <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
                           {item.name}
                         </span>
                       </div>
                       {item.tags && item.tags.length > 0 && (
-                        <SmartTruncatedTags 
-                          tags={item.tags} 
-                          onTagClick={setCurrentTagFilter}
-                          onEditItem={() => setEditingItem(item)}
-                        />
+                        <div className="absolute inset-0 flex items-center justify-end">
+                          <SmartTruncatedTags 
+                            tags={item.tags} 
+                            onTagClick={setCurrentTagFilter}
+                            onEditItem={() => setEditingItem(item)}
+                          />
+                        </div>
                       )}
                     </div>
                   ) : (
