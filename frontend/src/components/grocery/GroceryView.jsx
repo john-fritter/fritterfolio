@@ -239,7 +239,7 @@ export default function GroceryView({
                       }}
                     >
                       <div className="flex-none truncate">
-                        <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
+                        <span className={(item.completed && cachedView === 'list') ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
                           {item.name}
                         </span>
                       </div>
@@ -261,7 +261,7 @@ export default function GroceryView({
                     </div>
                   ) : (
                     <span 
-                      className={`${item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'} truncate block max-w-64 sm:max-w-none cursor-pointer`}
+                      className="text-lg text-secondary-dm truncate block max-w-64 sm:max-w-none cursor-pointer"
                       onClick={() => {
                         const toggleFn = cachedView === 'list' ? toggleItem : toggleMasterItem;
                         toggleFn(item.id, !item.completed);

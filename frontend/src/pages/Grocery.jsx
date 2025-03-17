@@ -674,7 +674,7 @@ export default function Grocery() {
     
     const baseItems = [
       { 
-        label: "Lists View",
+        label: "All Lists",
         action: () => setView(VIEWS.LISTS),
         show: view !== VIEWS.LISTS
       },
