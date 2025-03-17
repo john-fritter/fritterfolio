@@ -219,7 +219,13 @@ export default function GroceryView({
                 }
                 text={
                   cachedView === 'list' ? (
-                    <div className="relative w-full flex flex-col min-w-0">
+                    <div 
+                      className="relative w-full flex flex-col min-w-0 cursor-pointer" 
+                      onClick={() => {
+                        const toggleFn = cachedView === 'list' ? toggleItem : toggleMasterItem;
+                        toggleFn(item.id, !item.completed);
+                      }}
+                    >
                       <div className="flex-none truncate">
                         <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
                           {item.name}
@@ -229,14 +235,26 @@ export default function GroceryView({
                         <div className="absolute inset-0 flex items-center justify-end">
                           <SmartTruncatedTags 
                             tags={item.tags} 
-                            onTagClick={setCurrentTagFilter}
-                            onEditItem={() => setEditingItem(item)}
+                            onTagClick={(tag) => {
+                              // Stop propagation to prevent toggling when clicking tags
+                              setCurrentTagFilter(tag);
+                            }}
+                            onEditItem={() => {
+                              // Stop propagation to prevent toggling when clicking edit
+                              setEditingItem(item);
+                            }}
                           />
                         </div>
                       )}
                     </div>
                   ) : (
-                    <span className={item.completed ? 'text-lg text-secondary-dm line-through truncate block max-w-64 sm:max-w-none' : 'text-lg text-secondary-dm truncate block max-w-64 sm:max-w-none'}>
+                    <span 
+                      className={`${item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'} truncate block max-w-64 sm:max-w-none cursor-pointer`}
+                      onClick={() => {
+                        const toggleFn = cachedView === 'list' ? toggleItem : toggleMasterItem;
+                        toggleFn(item.id, !item.completed);
+                      }}
+                    >
                       {item.name}
                     </span>
                   )
