@@ -3,8 +3,8 @@ import PropTypes from 'prop-types';
 import GroceryLayout from '../../layouts/GroceryLayout';
 import ListRow from './ListRow';
 import ActionButton from './ActionButton';
-import SmartTruncatedTags from './SmartTruncatedTags';
 
+// Simplified GroceryView component
 export default function GroceryView({
   // View type
   view,
@@ -14,7 +14,8 @@ export default function GroceryView({
   selectList,
   setEditingList,
   deleteList,
-  onShareList,
+  /* eslint-disable-next-line no-unused-vars */
+  onShareList, // This prop is defined but unused in this component (kept for prop validation)
   
   // List view props
   items,
@@ -37,74 +38,67 @@ export default function GroceryView({
   menuItems,
   addForm
 }) {
-  // Local state for storing the last valid lists data to prevent flickering
-  const [cachedLists, setCachedLists] = useState([]);
-  const [cachedView, setCachedView] = useState(view);
+  // Local state for showing loading
   const [showLoading, setShowLoading] = useState(isLoading);
   
-  // Store combined lists in a cache to prevent flickering
-  useEffect(() => {
-    if (view === 'lists') {
-      // Always update cached lists when combinedLists changes in lists view
-      // This ensures deletions are reflected immediately
-      setCachedLists(combinedLists || []);
-    }
-  }, [view, combinedLists]);
+  // Store the current view for rendering
+  const [currentRenderView, setCurrentRenderView] = useState(view);
   
-  // IMPORTANT: Store the current view IMMEDIATELY when it changes
-  // This ensures view transitions work properly
+  // Update current render view when view prop changes
   useEffect(() => {
     console.log('GroceryView: View changed to:', view);
-    setCachedView(view);
+    setCurrentRenderView(view);
   }, [view]);
   
-  // Handle loading state without debounce to prevent flickering
+  // Handle loading state
   useEffect(() => {
-    // Always show loading immediately when isLoading is true
-    // This ensures smooth transitions between views
     if (isLoading) {
       setShowLoading(true);
     } else {
-      // When loading completes, hide loading immediately
       setShowLoading(false);
     }
   }, [isLoading]);
 
-  // Get the actual data for the current view
+  // Get the actual data for the current view - simplified
   const listData = useMemo(() => {
-    if (cachedView === 'lists') {
-      // Use cached lists if we have them, otherwise fall back to combined lists
-      return cachedLists.length > 0 ? cachedLists : combinedLists || [];
-    }
+    // Add debug logs to see what data we're working with
+    console.log('GroceryView: Preparing data for', currentRenderView, {
+      listItems: items?.length || 0,
+      masterItems: masterList?.items?.length || 0,
+      lists: combinedLists?.length || 0
+    });
     
-    // For other views, we don't need special handling
-    const sourceItems = cachedView === 'list' ? items : masterList?.items;
-    
-    if (!sourceItems || !Array.isArray(sourceItems)) {
-      return [];
-    }
-    
-    if (cachedView === 'list') {
+    // Simply return the appropriate data based on view
+    if (currentRenderView === 'lists') {
+      return combinedLists || [];
+    } else if (currentRenderView === 'list') {
+      // Filter list items if tag filter is active
+      const sourceItems = items || [];
+      console.log('List items source data:', sourceItems);
       const filtered = sourceItems.filter(item => 
         !currentTagFilter || item.tags?.some(tag => tag.text === currentTagFilter.text)
       );
       return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
+    } else if (currentRenderView === 'master') {
+      const masterItems = masterList?.items || [];
+      console.log('Master items source data:', masterItems);
+      return masterItems.sort((a, b) => a.name.localeCompare(b.name));
     }
     
-    return [...sourceItems].sort((a, b) => a.name.localeCompare(b.name));
-  }, [cachedView, items, masterList, combinedLists, cachedLists, currentTagFilter]);
+    return [];
+  }, [currentRenderView, items, masterList, combinedLists, currentTagFilter]);
 
   // Compute whether all items are checked
   const isAllChecked = useMemo(() => {
-    if (cachedView === 'lists' || !listData.length) return false;
+    if (currentRenderView === 'lists' || !listData.length) return false;
     return listData.every(item => item.completed);
-  }, [cachedView, listData]);
+  }, [currentRenderView, listData]);
 
   // Generate title based on view
   const title = useMemo(() => {
-    if (cachedView === 'lists') return "My Grocery Lists";
-    if (cachedView === 'master') return "Master List";
-    if (cachedView === 'list' && currentList) {
+    if (currentRenderView === 'lists') return "My Grocery Lists";
+    if (currentRenderView === 'master') return "Master List";
+    if (currentRenderView === 'list' && currentList) {
       return (
         <div className="flex items-center gap-2">
           <span className="truncate max-w-52 sm:max-w-none">{currentList.name}</span>
@@ -131,148 +125,115 @@ export default function GroceryView({
       );
     }
     return "";
-  }, [cachedView, currentList, currentTagFilter, setCurrentTagFilter]);
+  }, [currentRenderView, currentList, currentTagFilter, setCurrentTagFilter]);
 
-  const emptyMessage = cachedView === 'lists'
+  const emptyMessage = currentRenderView === 'lists'
     ? "You don't have any lists yet. Create your first list below."
-    : cachedView === 'master'
+    : currentRenderView === 'master'
       ? "Your master list is empty. Items you add to any list will appear here."
       : "No items in this list yet. Add your first item below.";
 
   return (
     <GroceryLayout
       title={title}
-      showCheckAll={cachedView !== 'lists' && listData.length > 0}
+      showCheckAll={currentRenderView !== 'lists' && listData.length > 0}
       isAllChecked={isAllChecked}
-      onCheckAll={cachedView === 'list' ? toggleAllItems : toggleAllMasterItems}
+      onCheckAll={currentRenderView === 'list' ? toggleAllItems : toggleAllMasterItems}
       menuItems={menuItems}
       isLoading={showLoading}
       emptyMessage={emptyMessage}
       addItemForm={addForm}
     >
-      {!showLoading ? (
-        // Generate list items based on view
-        listData.length > 0 ? (
-          listData.map(cachedView === 'lists' 
-            ? list => (
-              <ListRow
-                key={list.id + (list.is_received_share ? '-shared' : '')}
-                text={
-                  <div className="flex items-center">
-                    <span className="text-lg text-secondary-dm truncate max-w-32 sm:max-w-none">
-                      {list.name}
-                    </span>
-                    {list.is_shared && (
-                      <span className="ml-2 text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
-                        <span className="hidden sm:inline">{list.shared_with_email}</span>
-                        <span className="sm:hidden">Shared</span>
+      {!showLoading && (
+        <>
+          {/* LISTS VIEW */}
+          {currentRenderView === 'lists' && combinedLists && combinedLists.length > 0 && (
+            <div className="divide-y divide-gray-100 dark:divide-gray-800">
+              {combinedLists.map(list => (
+                <ListRow
+                  key={list.id + (list.is_received_share ? '-shared' : '')}
+                  text={
+                    <div className="flex items-center">
+                      <span className="text-lg text-secondary-dm truncate max-w-32 sm:max-w-none">
+                        {list.name}
                       </span>
-                    )}
-                    <span className="ml-2 text-xs text-secondary-dm opacity-75 hidden sm:inline">
-                      {Array.isArray(list.items) ? `${list.items.length} items` : '0 items'}
-                    </span>
-                  </div>
-                }
-                rightElements={
-                  // For all lists show edit and delete buttons
-                  // Only show share button for non-shared lists
-                  <>
-                    <ActionButton 
-                      title="Edit list"
-                      icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingList(list);
-                      }}
-                    />
-                    {!list.is_shared && (
+                      {list.is_shared && (
+                        <span className="ml-2 text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
+                          <span className="hidden sm:inline">{list.shared_with_email}</span>
+                          <span className="sm:hidden">Shared</span>
+                        </span>
+                      )}
+                    </div>
+                  }
+                  rightElements={
+                    <>
                       <ActionButton 
-                        title="Share list"
-                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />}
+                        title="Edit list"
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
                         onClick={(e) => {
                           e.stopPropagation();
-                          onShareList(list.id);
+                          setEditingList(list);
                         }}
-                        color="primary"
-                        iconColor="text-blue-500"
                       />
-                    )}
-                    <ActionButton 
-                      title="Delete list"
-                      icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteList(list.id);
-                      }}
-                      color="accent"
-                      iconColor="text-red-500"
+                      <ActionButton 
+                        title="Delete list"
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteList(list.id);
+                        }}
+                        color="accent"
+                        iconColor="text-red-500"
+                      />
+                    </>
+                  }
+                  onClick={() => {
+                    console.log("ListRow clicked, selecting list:", list.name);
+                    selectList(list.id);
+                  }}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* LIST VIEW */}
+          {currentRenderView === 'list' && items && items.length > 0 && (
+            <div className="divide-y divide-gray-100 dark:divide-gray-800">
+              {items.map(item => (
+                <ListRow
+                  key={item.id}
+                  leftElement={
+                    <input
+                      type="checkbox"
+                      checked={item.completed}
+                      onChange={() => toggleItem(item.id, !item.completed)}
+                      className="h-6 w-6 text-primary border-gray-300 rounded focus:ring-primary"
                     />
-                  </>
-                }
-                onClick={() => {
-                  console.log("ListRow clicked, selecting list:", list.name);
-                  selectList(list);
-                }}
-              />
-            )
-            : item => (
-              <ListRow
-                key={item.id}
-                leftElement={
-                  <input
-                    type="checkbox"
-                    checked={item.completed}
-                    onChange={() => {
-                      const toggleFn = cachedView === 'list' ? toggleItem : toggleMasterItem;
-                      toggleFn(item.id, !item.completed);
-                    }}
-                    className="h-6 w-6 text-primary border-gray-300 rounded focus:ring-primary"
-                  />
-                }
-                text={
-                  cachedView === 'list' ? (
-                    <div 
-                      className="relative w-full flex flex-col min-w-0 cursor-pointer" 
-                      onClick={() => {
-                        const toggleFn = cachedView === 'list' ? toggleItem : toggleMasterItem;
-                        toggleFn(item.id, !item.completed);
-                      }}
-                    >
-                      <div className="flex-none truncate">
-                        <span className={(item.completed && cachedView === 'list') ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
-                          {item.name}
-                        </span>
-                      </div>
+                  }
+                  text={
+                    <div className="flex flex-col">
+                      <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
+                        {item.name}
+                      </span>
                       {item.tags && item.tags.length > 0 && (
-                        <div className="absolute inset-0 flex items-center justify-end">
-                          <SmartTruncatedTags 
-                            tags={item.tags} 
-                            onTagClick={(tag) => {
-                              // Stop propagation to prevent toggling when clicking tags
-                              setCurrentTagFilter(tag);
-                            }}
-                            onEditItem={() => {
-                              // Stop propagation to prevent toggling when clicking edit
-                              setEditingItem(item);
-                            }}
-                          />
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {item.tags.map(tag => (
+                            <span 
+                              key={tag.text} 
+                              className={`inline-flex items-center text-xs px-2 py-0.5 bg-${tag.color}-100 dark:bg-${tag.color}-900 text-${tag.color}-800 dark:text-${tag.color}-200 rounded-full cursor-pointer`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCurrentTagFilter(tag);
+                              }}
+                            >
+                              {tag.text}
+                            </span>
+                          ))}
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <span 
-                      className="text-lg text-secondary-dm truncate block max-w-64 sm:max-w-none cursor-pointer"
-                      onClick={() => {
-                        const toggleFn = cachedView === 'list' ? toggleItem : toggleMasterItem;
-                        toggleFn(item.id, !item.completed);
-                      }}
-                    >
-                      {item.name}
-                    </span>
-                  )
-                }
-                rightElements={
-                  cachedView === 'list' ? (
+                  }
+                  rightElements={
                     <>
                       <ActionButton 
                         title="Edit item"
@@ -287,7 +248,32 @@ export default function GroceryView({
                         iconColor="text-red-500"
                       />
                     </>
-                  ) : (
+                  }
+                />
+              ))}
+            </div>
+          )}
+
+          {/* MASTER VIEW */}
+          {currentRenderView === 'master' && masterList?.items && masterList.items.length > 0 && (
+            <div className="divide-y divide-gray-100 dark:divide-gray-800">
+              {masterList.items.map(item => (
+                <ListRow
+                  key={item.id}
+                  leftElement={
+                    <input
+                      type="checkbox"
+                      checked={item.completed}
+                      onChange={() => toggleMasterItem(item.id, !item.completed)}
+                      className="h-6 w-6 text-primary border-gray-300 rounded focus:ring-primary"
+                    />
+                  }
+                  text={
+                    <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
+                      {item.name}
+                    </span>
+                  }
+                  rightElements={
                     <ActionButton 
                       title="Delete item"
                       icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
@@ -295,45 +281,19 @@ export default function GroceryView({
                       color="accent"
                       iconColor="text-red-500"
                     />
-                  )
-                }
-              />
-            ))
-        ) : (
-          !showLoading && <div className="text-center text-secondary-dm opacity-60 py-4">{emptyMessage}</div>
-        )
-      ) : (
-        // Placeholder skeleton
-        cachedView === 'lists' ? (
-          <div className="animate-pulse">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="py-4 px-4 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
-                <div className="flex items-center space-x-4">
-                  <div className="h-6 w-48 bg-gray-200 dark:bg-gray-700 rounded"></div>
-                </div>
-                <div className="flex space-x-2">
-                  <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
-                  <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="animate-pulse">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="py-4 px-4 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
-                <div className="flex items-center space-x-4">
-                  <div className="h-6 w-6 bg-gray-200 dark:bg-gray-700 rounded"></div>
-                  <div className="h-5 w-40 bg-gray-200 dark:bg-gray-700 rounded"></div>
-                </div>
-                <div className="flex space-x-2">
-                  <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
-                  <div className="h-8 w-8 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )
+                  }
+                />
+              ))}
+            </div>
+          )}
+
+          {/* EMPTY STATE MESSAGE */}
+          {((currentRenderView === 'lists' && (!combinedLists || combinedLists.length === 0)) ||
+            (currentRenderView === 'list' && (!items || items.length === 0)) ||
+            (currentRenderView === 'master' && (!masterList?.items || masterList.items.length === 0))) && (
+            <div className="text-center text-secondary-dm opacity-60 py-4">{emptyMessage}</div>
+          )}
+        </>
       )}
     </GroceryLayout>
   );
