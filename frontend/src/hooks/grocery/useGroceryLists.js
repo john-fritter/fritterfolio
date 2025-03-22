@@ -150,15 +150,22 @@ export const useGroceryLists = (user) => {
     try {
       await api.updateGroceryList(listId, { name: newName });
       
+      // Update the list in groceryLists
       setGroceryLists(prev => 
         prev.map(list => 
           list.id === listId ? { ...list, name: newName } : list
         )
       );
       
+      // Update currentList if it matches
       if (currentList && currentList.id === listId) {
         setCurrentList(prev => ({ ...prev, name: newName }));
       }
+
+      // Force refresh lists to ensure UI is up to date
+      await fetchGroceryLists(true);
+      
+      return true;
     } catch (error) {
       console.error("Error updating list name:", error);
       throw error;

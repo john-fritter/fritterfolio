@@ -101,6 +101,7 @@ export default function Grocery() {
   });
   const [notification, setNotification] = useState(null);
   const [editingList, setEditingList] = useState(null);
+  const [editingListName, setEditingListName] = useState('');
   const [showListSelection, setShowListSelection] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showPendingShares, setShowPendingShares] = useState(true);
@@ -368,6 +369,13 @@ export default function Grocery() {
       localStorage.removeItem('currentListId');
     }
   }, [currentList, isInitializing]);
+
+  // Effect to set editing name when list is selected for editing
+  useEffect(() => {
+    if (editingList) {
+      setEditingListName(editingList.name);
+    }
+  }, [editingList]);
 
   // Keep new item input focused
   useEffect(() => {
@@ -991,6 +999,24 @@ export default function Grocery() {
     </form>
   );
 
+  // Handle list name update
+  const handleUpdateListName = async (listId, newName) => {
+    try {
+      await updateListName(listId, newName);
+      // After updating the list name, also refresh shared lists
+      await fetchAcceptedShares();
+      setNotification({
+        message: "List name updated successfully",
+        type: "success"
+      });
+    } catch {
+      setNotification({
+        message: "Failed to update list name",
+        type: "error"
+      });
+    }
+  };
+
   return (
     <div className="pr-6 md:pr-0 max-w-[calc(100%-24px)] md:max-w-full mx-auto">
       {notification && (
@@ -1057,15 +1083,19 @@ export default function Grocery() {
 
       <ListEditingModal
         isOpen={!!editingList}
-        listName={editingList?.name || ''}
+        listName={editingListName}
         onSave={() => {
           if (editingList) {
-            updateListName(editingList.id, newListName);
+            handleUpdateListName(editingList.id, editingListName);
             setEditingList(null);
+            setEditingListName('');
           }
         }}
-        onCancel={() => setEditingList(null)}
-        onChange={setNewListName}
+        onCancel={() => {
+          setEditingList(null);
+          setEditingListName('');
+        }}
+        onChange={setEditingListName}
       />
 
       <ListSelectionModal
