@@ -7,21 +7,34 @@ export const useMasterList = (user) => {
   const [selectedItems, setSelectedItems] = useState([]);
 
   // Fetch master list items
-  const fetchMasterList = useCallback(async (force = false) => {
-    if (!user) return;
-    
-    // Skip if we already have items and not forced
-    if (!force && masterList.items.length > 0) {
-      return masterList;
-    }
+  const fetchMasterList = useCallback(async () => {
+    if (!user) return { items: [] };
     
     try {
       setMasterLoading(true);
-      const masterListData = await api.getMasterList();
+      console.log('Fetching master list data from API...');
+      
+      const rawResponse = await api.getMasterList();
+      console.log('MASTER LIST RAW API RESPONSE:', rawResponse);
+      
+      // Handle case where API returns null or undefined
+      const masterListData = rawResponse || { items: [] };
+      
+      // Important: Don't proceed if response doesn't have items array
+      if (!masterListData || !Array.isArray(masterListData.items)) {
+        console.error("Invalid master list data:", masterListData);
+        // Create a valid data structure
+        const emptyList = { items: [] };
+        setMasterList(emptyList);
+        setMasterLoading(false);
+        return emptyList;
+      }
       
       // Deduplicate items by name (case-insensitive)
       const seen = new Set();
       const deduplicatedItems = masterListData.items.filter(item => {
+        if (!item || !item.name) return false; // Skip invalid items
+        
         const normalizedName = item.name.toLowerCase().trim();
         if (seen.has(normalizedName)) {
           return false;
@@ -30,21 +43,25 @@ export const useMasterList = (user) => {
         return true;
       });
       
-      setMasterList({
-        ...masterListData,
-        items: deduplicatedItems
-      });
-      
-      return {
+      // Create new master list object with deduplicated items
+      const updatedMasterList = {
         ...masterListData,
         items: deduplicatedItems
       };
+      
+      console.log(`Master list processed with ${deduplicatedItems.length} items:`, deduplicatedItems);
+      setMasterList(updatedMasterList);
+      setMasterLoading(false);
+      
+      return updatedMasterList;
     } catch (error) {
       console.error("Error fetching master list:", error);
-    } finally {
+      const emptyList = { items: [] };
+      setMasterList(emptyList);
       setMasterLoading(false);
+      return emptyList;
     }
-  }, [user, masterList]);
+  }, [user]);
 
   // Add item to master list
   const addToMasterList = async (itemName) => {

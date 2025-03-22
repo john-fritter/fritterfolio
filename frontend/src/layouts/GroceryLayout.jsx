@@ -90,7 +90,7 @@ export default function GroceryLayout({
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         {isLoading ? (
-          <div className="py-4 px-4 text-center text-xl text-secondary-dm animate-fade-in transition-opacity duration-300">
+          <div className="py-4 px-4 text-center text-xl text-secondary-dm">
             <div className="inline-block">
               <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-primary inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -99,12 +99,12 @@ export default function GroceryLayout({
               <span className="opacity-90">Loading...</span>
             </div>
           </div>
-        ) : children?.length > 0 ? (
-          <div className="animate-fade-in transition-opacity duration-500">
+        ) : children ? (
+          <div>
             {children}
           </div>
         ) : (
-          <div className="py-4 px-4 text-center text-xl text-secondary-dm animate-fade-in transition-opacity duration-300">
+          <div className="py-4 px-4 text-center text-xl text-secondary-dm">
             {emptyMessage}
           </div>
         )}

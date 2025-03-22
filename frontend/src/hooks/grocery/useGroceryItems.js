@@ -12,9 +12,10 @@ export const useGroceryItems = (listId, updateListCount) => {
   const fetchItems = useCallback(async (targetListId = listId, force = false) => {
     // If no ID provided and no current listId, clear items
     if (!targetListId) {
+      console.log('No list ID provided, clearing items');
       setItems([]);
       setLastFetchedListId(null);
-      return;
+      return [];
     }
 
     // Skip fetch if we already have items for this list and not forcing
@@ -28,16 +29,25 @@ export const useGroceryItems = (listId, updateListCount) => {
     try {
       console.log('Fetching items for list:', listIdToUse);
       setItemsLoading(true);
-      const fetchedItems = await api.getGroceryItems(listIdToUse);
+      
+      const rawResponse = await api.getGroceryItems(listIdToUse);
+      console.log('LIST ITEMS RAW API RESPONSE:', rawResponse);
+      
+      // Handle case where API returns null or undefined
+      const fetchedItems = rawResponse || [];
+      
+      // Ensure we have a valid array even if API fails
       const itemsArray = Array.isArray(fetchedItems) ? fetchedItems : [];
+      
+      console.log(`Processed ${itemsArray.length} items for list ${listIdToUse}:`, itemsArray);
       setItems(itemsArray);
       setLastFetchedListId(listIdToUse);
       return itemsArray;
     } catch (error) {
       console.error("Error fetching list items:", error);
-      setItems([]);
-      setLastFetchedListId(null);
-      return [];
+      // Don't clear existing items on error to avoid data loss
+      setItemsLoading(false);
+      return items;
     } finally {
       setItemsLoading(false);
     }
