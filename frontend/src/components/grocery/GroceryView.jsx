@@ -44,49 +44,46 @@ export default function GroceryView({
   // Store the current view for rendering
   const [currentRenderView, setCurrentRenderView] = useState(view);
   
-  // Update current render view when view prop changes
-  useEffect(() => {
-    console.log('GroceryView: View changed to:', view);
-    setCurrentRenderView(view);
-  }, [view]);
-  
-  // Handle loading state
-  useEffect(() => {
-    if (isLoading) {
-      setShowLoading(true);
-    } else {
-      setShowLoading(false);
-    }
-  }, [isLoading]);
-
   // Get the actual data for the current view - simplified
   const listData = useMemo(() => {
-    // Add debug logs to see what data we're working with
-    console.log('GroceryView: Preparing data for', currentRenderView, {
-      listItems: items?.length || 0,
-      masterItems: masterList?.items?.length || 0,
-      lists: combinedLists?.length || 0
-    });
-    
     // Simply return the appropriate data based on view
     if (currentRenderView === 'lists') {
       return combinedLists || [];
     } else if (currentRenderView === 'list') {
       // Filter list items if tag filter is active
       const sourceItems = items || [];
-      console.log('List items source data:', sourceItems);
       const filtered = sourceItems.filter(item => 
         !currentTagFilter || item.tags?.some(tag => tag.text === currentTagFilter.text)
       );
       return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
     } else if (currentRenderView === 'master') {
       const masterItems = masterList?.items || [];
-      console.log('Master items source data:', masterItems);
       return masterItems.sort((a, b) => a.name.localeCompare(b.name));
     }
     
     return [];
   }, [currentRenderView, items, masterList, combinedLists, currentTagFilter]);
+
+  // Handle loading state with debounce
+  useEffect(() => {
+    if (isLoading) {
+      setShowLoading(true);
+    } else {
+      // Add a small delay before hiding loading state to prevent flicker
+      const timer = setTimeout(() => {
+        setShowLoading(false);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading]);
+
+  // Update current render view when view prop changes - with debounce
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setCurrentRenderView(view);
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [view]);
 
   // Compute whether all items are checked
   const isAllChecked = useMemo(() => {
@@ -189,7 +186,7 @@ export default function GroceryView({
                   }
                   onClick={() => {
                     console.log("ListRow clicked, selecting list:", list.name);
-                    selectList(list.id);
+                    selectList(list);
                   }}
                 />
               ))}
