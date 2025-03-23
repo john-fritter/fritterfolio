@@ -16,6 +16,36 @@ const TAG_COLORS = [
 const MAX_NAME_LENGTH = 30;
 const MAX_TAG_LENGTH = 8;
 
+// Validation constants
+const VALID_ITEM_NAME_REGEX = /^[a-zA-Z0-9\s\-_.,!?&()']+$/;
+const VALID_TAG_NAME_REGEX = /^[a-zA-Z0-9\-_]+$/;
+
+const validateItemName = (name) => {
+  if (!name.trim()) {
+    return { isValid: false, error: "Item name cannot be empty" };
+  }
+  if (name.trim().length > MAX_NAME_LENGTH) {
+    return { isValid: false, error: `Item name cannot exceed ${MAX_NAME_LENGTH} characters` };
+  }
+  if (!VALID_ITEM_NAME_REGEX.test(name.trim())) {
+    return { isValid: false, error: "Item name can only contain letters, numbers, spaces, and basic punctuation (.-_,!?&()'" };
+  }
+  return { isValid: true };
+};
+
+const validateTagName = (name) => {
+  if (!name.trim()) {
+    return { isValid: false, error: "Tag name cannot be empty" };
+  }
+  if (name.trim().length > MAX_TAG_LENGTH) {
+    return { isValid: false, error: `Tag name cannot exceed ${MAX_TAG_LENGTH} characters` };
+  }
+  if (!VALID_TAG_NAME_REGEX.test(name.trim())) {
+    return { isValid: false, error: "Tags can only contain letters, numbers, hyphens, and underscores" };
+  }
+  return { isValid: true };
+};
+
 const Tag = ({ text, color, onRemove }) => (
   <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full ${color ? `bg-${color}-100 dark:bg-${color}-900 text-${color}-800 dark:text-${color}-200` : ''} mr-2 mb-2`}>
     <span className="text-sm">{text}</span>
@@ -93,8 +123,10 @@ const ItemEditingModal = ({ isOpen, itemName, tags = [], allTags = [], onSave, o
 
   const handleAddTag = () => {
     if (!newTagText.trim()) return;
-    if (newTagText.length > MAX_TAG_LENGTH) {
-      setError(`Tag must be ${MAX_TAG_LENGTH} characters or less`);
+    
+    const validation = validateTagName(newTagText);
+    if (!validation.isValid) {
+      setError(validation.error);
       return;
     }
     
@@ -106,6 +138,7 @@ const ItemEditingModal = ({ isOpen, itemName, tags = [], allTags = [], onSave, o
     setItemTags(prev => [...prev, newTag]);
     setNewTagText('');
     setShowPreview(false);
+    setError('');
   };
 
   const handleRemoveTag = (tagToRemove) => {
@@ -115,14 +148,19 @@ const ItemEditingModal = ({ isOpen, itemName, tags = [], allTags = [], onSave, o
   const handleSubmit = (e) => {
     e.preventDefault();
     
-    if (!newName.trim()) {
-      setError('Item name cannot be empty');
+    const validation = validateItemName(newName);
+    if (!validation.isValid) {
+      setError(validation.error);
       return;
     }
-    
-    if (newName.trim().length > MAX_NAME_LENGTH) {
-      setError(`Item name cannot exceed ${MAX_NAME_LENGTH} characters`);
-      return;
+
+    // Validate all tags
+    for (const tag of itemTags) {
+      const tagValidation = validateTagName(tag.text);
+      if (!tagValidation.isValid) {
+        setError(tagValidation.error);
+        return;
+      }
     }
 
     onSave({

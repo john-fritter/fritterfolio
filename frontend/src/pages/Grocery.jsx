@@ -30,6 +30,38 @@ const VIEWS = {
 
 // Constants
 const MAX_NAME_LENGTH = 30;
+const MAX_TAG_LENGTH = 8;
+
+// Add validation constants
+const VALID_ITEM_NAME_REGEX = /^[a-zA-Z0-9\s\-_.,!?&()']+$/;
+const VALID_TAG_NAME_REGEX = /^[a-zA-Z0-9\-_]+$/;
+
+// Add validation helper functions
+const validateItemName = (name) => {
+  if (!name.trim()) {
+    return { isValid: false, error: "Item name cannot be empty" };
+  }
+  if (name.trim().length > MAX_NAME_LENGTH) {
+    return { isValid: false, error: `Item name cannot exceed ${MAX_NAME_LENGTH} characters` };
+  }
+  if (!VALID_ITEM_NAME_REGEX.test(name.trim())) {
+    return { isValid: false, error: "Item name can only contain letters, numbers, spaces, and basic punctuation (.-_,!?&()'" };
+  }
+  return { isValid: true };
+};
+
+const validateTagName = (name) => {
+  if (!name.trim()) {
+    return { isValid: false, error: "Tag name cannot be empty" };
+  }
+  if (name.trim().length > MAX_TAG_LENGTH) {
+    return { isValid: false, error: `Tag name cannot exceed ${MAX_TAG_LENGTH} characters` };
+  }
+  if (!VALID_TAG_NAME_REGEX.test(name.trim())) {
+    return { isValid: false, error: "Tags can only contain letters, numbers, hyphens, and underscores" };
+  }
+  return { isValid: true };
+};
 
 export default function Grocery() {
   const { user, loading: authLoading } = useAuth();
@@ -436,6 +468,16 @@ export default function Grocery() {
       console.error('Cannot select list: Invalid list data received', list);
       return;
     }
+
+    // Don't allow selecting lists with temporary IDs
+    if (typeof list.id === 'string' && list.id.startsWith('temp-')) {
+      console.error('Cannot select list: List has a temporary ID', list);
+      setNotification({
+        message: "This list is still being created. Please wait a moment and try again.",
+        type: "warning"
+      });
+      return;
+    }
     
     try {
       // Reset fetch flags whenever we explicitly select a list
@@ -466,6 +508,10 @@ export default function Grocery() {
         })
         .catch((error) => {
           console.error('Error fetching items:', error);
+          setNotification({
+            message: "Failed to load list items. Please try again.",
+            type: "error"
+          });
           
           // Still update state even if fetch fails
           localStorage.setItem('currentListId', list.id.toString());
@@ -479,6 +525,10 @@ export default function Grocery() {
         });
     } catch (error) {
       console.error('Error during list selection:', error);
+      setNotification({
+        message: "An unexpected error occurred. Please try again.",
+        type: "error"
+      });
       setIsInitializing(false);
       setInitialView(null);
     }
@@ -493,6 +543,16 @@ export default function Grocery() {
     if (newListName.trim().length > MAX_NAME_LENGTH) {
       setNotification({
         message: `List name cannot exceed ${MAX_NAME_LENGTH} characters`,
+        type: "error"
+      });
+      return;
+    }
+
+    // Validate list name - only allow alphanumeric characters, spaces, and basic punctuation
+    const validNameRegex = /^[a-zA-Z0-9\s\-_.,!?]+$/;
+    if (!validNameRegex.test(newListName.trim())) {
+      setNotification({
+        message: "List name can only contain letters, numbers, spaces, and basic punctuation (.-_,!?)",
         type: "error"
       });
       return;
@@ -516,7 +576,8 @@ export default function Grocery() {
       // End loading state
       setIsInitializing(false);
       setInitialView(null);
-    } catch {
+    } catch (error) {
+      console.error('Error creating list:', error);
       setNotification({
         message: "Failed to create list",
         type: "error"
@@ -634,7 +695,31 @@ export default function Grocery() {
   // Handle item update
   const handleUpdateItem = async (itemId, updates) => {
     try {
+      // Validate item name if it's being updated
+      if (updates.name) {
+        const validation = validateItemName(updates.name);
+        if (!validation.isValid) {
+          setNotification({
+            message: validation.error,
+            type: "error"
+          });
+          return;
+        }
+      }
+
+      // Validate tags if they're being updated
       if (updates.tags) {
+        for (const tag of updates.tags) {
+          const validation = validateTagName(tag.text);
+          if (!validation.isValid) {
+            setNotification({
+              message: validation.error,
+              type: "error"
+            });
+            return;
+          }
+        }
+
         setAllTags(prev => {
           const newTags = updates.tags.filter(newTag => 
             !prev.some(existingTag => existingTag.text === newTag.text)
@@ -665,9 +750,10 @@ export default function Grocery() {
       }
 
       setEditingItem(null);
-    } catch {
+    } catch (error) {
+      console.error('Error updating item:', error);
       setNotification({
-        message: "Failed to update item",
+        message: error.message || "Failed to update item",
         type: "error"
       });
     }
@@ -929,11 +1015,11 @@ export default function Grocery() {
   // Handler for adding a new item to prevent duplicate master list entries
   const handleAddNewItem = useCallback(async () => {
     if (!newItem.trim()) return;
-    
-    // Check for character limit
-    if (newItem.trim().length > MAX_NAME_LENGTH) {
+
+    const validation = validateItemName(newItem);
+    if (!validation.isValid) {
       setNotification({
-        message: `Item name cannot exceed ${MAX_NAME_LENGTH} characters`,
+        message: validation.error,
         type: "error"
       });
       return;
