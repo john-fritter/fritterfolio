@@ -71,18 +71,10 @@ export const addGroceryItem = async (listId, name) => {
 // Update a grocery item
 export const updateGroceryItem = async (itemId, updates) => {
   const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
-  
-  // Only include listId in the path if we're updating completion status
-  const endpoint = Object.prototype.hasOwnProperty.call(updates, 'completed')
-    ? `${API_URL}/grocery-lists/${updates.listId}/items/${itemId}`
-    : `${API_URL}/grocery-items/${itemId}`;
-  
-  const response = await fetch(endpoint, {
+  const response = await fetch(`${API_URL}/grocery-lists/${updates.listId}/items/${itemId}`, {
     method: 'PUT',
     headers,
-    body: JSON.stringify(Object.fromEntries(
-      Object.entries(updates).filter(([key]) => key !== 'listId')
-    ))
+    body: JSON.stringify(updates)
   });
   
   if (!response.ok) {
