@@ -27,8 +27,10 @@ export const useGroceryItems = (listId, updateListCount) => {
   
     try {
       setItemsLoading(true);
+      console.log('Fetching items for list:', listIdToUse);
       
       const rawResponse = await api.getGroceryItems(listIdToUse);
+      console.log('Received response:', rawResponse);
       
       // Handle case where API returns null or undefined
       const fetchedItems = rawResponse || [];
@@ -36,12 +38,19 @@ export const useGroceryItems = (listId, updateListCount) => {
       // Ensure we have a valid array even if API fails
       const itemsArray = Array.isArray(fetchedItems) ? fetchedItems : [];
       
-      setItems(itemsArray);
+      // Sort items alphabetically by name, case-insensitive
+      const sortedItems = itemsArray.sort((a, b) => 
+        a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+      );
+      
+      setItems(sortedItems);
       setLastFetchedListId(listIdToUse);
-      return itemsArray;
+      return sortedItems;
     } catch (error) {
       console.error("Error fetching list items:", error);
-      return items;
+      setItems([]);
+      setLastFetchedListId(null);
+      throw error; // Re-throw to allow proper error handling up the chain
     } finally {
       setItemsLoading(false);
     }
@@ -51,11 +60,11 @@ export const useGroceryItems = (listId, updateListCount) => {
   useEffect(() => {
     if (!listId || itemsLoading) return;
     
-    // Only fetch if list ID changed or we don't have items
-    if (lastFetchedListId !== listId || items.length === 0) {
+    // Only fetch if list ID changed
+    if (lastFetchedListId !== listId) {
       fetchItems(listId, false);
     }
-  }, [listId, lastFetchedListId, fetchItems, itemsLoading, items.length]);
+  }, [listId, lastFetchedListId, fetchItems, itemsLoading]);
 
   // Add a new item with debounce protection
   const addItem = async (name, addToMasterListFn = null) => {
@@ -114,7 +123,7 @@ export const useGroceryItems = (listId, updateListCount) => {
   // Toggle item completion
   const toggleItem = async (itemId, completed) => {
     try {
-      await api.updateGroceryItem(itemId, { completed });
+      await api.updateGroceryItem(itemId, { completed, listId });
       setItems(prev => 
         prev.map(item => 
           item.id === itemId ? { ...item, completed } : item
@@ -130,7 +139,7 @@ export const useGroceryItems = (listId, updateListCount) => {
   const toggleAllItems = async (completed) => {
     try {
       const updatePromises = items.map(item => 
-        api.updateGroceryItem(item.id, { completed })
+        api.updateGroceryItem(item.id, { completed, listId })
       );
       
       await Promise.all(updatePromises);
@@ -147,7 +156,7 @@ export const useGroceryItems = (listId, updateListCount) => {
   // Update item
   const updateItem = async (itemId, updates) => {
     try {
-      const updatedItem = await api.updateGroceryItem(itemId, updates);
+      const updatedItem = await api.updateGroceryItem(itemId, { ...updates, listId });
       setItems(prev => 
         prev.map(item => 
           item.id === itemId ? updatedItem : item

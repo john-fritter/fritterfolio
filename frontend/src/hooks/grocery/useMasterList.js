@@ -64,7 +64,7 @@ export const useMasterList = (user) => {
   }, [user]);
 
   // Add item to master list
-  const addToMasterList = async (itemName) => {
+  const addToMasterList = async (itemName, tags = []) => {
     if (!user || !itemName.trim()) return;
     
     try {
@@ -78,9 +78,16 @@ export const useMasterList = (user) => {
       
       // If it exists in the current UI state, don't add it again
       if (isDuplicateInUI) {
-        return masterList.items.find(item => 
+        const existingItem = masterList.items.find(item => 
           item.name.toLowerCase().trim() === normalizedName
         );
+        
+        // If the item exists and has different tags, update them
+        if (tags?.length > 0 && JSON.stringify(existingItem.tags) !== JSON.stringify(tags)) {
+          return updateMasterItem(existingItem.id, { name: existingItem.name, tags });
+        }
+        
+        return existingItem;
       }
       
       // Add the new item with optimistic update
@@ -89,7 +96,8 @@ export const useMasterList = (user) => {
         id: tempId,
         name: itemName.trim(),
         completed: false,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        tags: tags || []
       };
       
       // Update UI immediately (optimistic update)
@@ -99,7 +107,7 @@ export const useMasterList = (user) => {
       }));
       
       // Make the API call
-      const newMasterItem = await api.addMasterListItem(itemName);
+      const newMasterItem = await api.addMasterListItem(itemName, tags);
       
       // Replace the optimistic item with the real one
       setMasterList(prev => ({
@@ -112,6 +120,23 @@ export const useMasterList = (user) => {
       return newMasterItem;
     } catch (error) {
       console.error("Error adding to master list:", error);
+      throw error;
+    }
+  };
+
+  // Update master item
+  const updateMasterItem = async (itemId, updates) => {
+    try {
+      const updatedItem = await api.updateMasterListItem(itemId, updates);
+      setMasterList(prev => ({
+        ...prev,
+        items: prev.items.map(item => 
+          item.id === itemId ? updatedItem : item
+        )
+      }));
+      return updatedItem;
+    } catch (error) {
+      console.error("Error updating master item:", error);
       throw error;
     }
   };
@@ -174,6 +199,7 @@ export const useMasterList = (user) => {
     addToMasterList,
     deleteMasterItem,
     toggleMasterItem,
-    toggleAllMasterItems
+    toggleAllMasterItems,
+    updateMasterItem
   };
 }; 

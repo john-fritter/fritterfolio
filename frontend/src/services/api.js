@@ -48,7 +48,11 @@ export const getGroceryItems = async (listId) => {
   const response = await fetch(`${API_URL}/grocery-lists/${listId}/items`, {
     headers
   });
-  if (!response.ok) throw new Error('Failed to fetch grocery items');
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Error fetching items: ${errorText}`);
+    throw new Error(`Failed to fetch grocery items: ${errorText}`);
+  }
   return response.json();
 };
 
@@ -67,12 +71,25 @@ export const addGroceryItem = async (listId, name) => {
 // Update a grocery item
 export const updateGroceryItem = async (itemId, updates) => {
   const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
-  const response = await fetch(`${API_URL}/grocery-items/${itemId}`, {
+  
+  // Only include listId in the path if we're updating completion status
+  const endpoint = Object.prototype.hasOwnProperty.call(updates, 'completed')
+    ? `${API_URL}/grocery-lists/${updates.listId}/items/${itemId}`
+    : `${API_URL}/grocery-items/${itemId}`;
+  
+  const response = await fetch(endpoint, {
     method: 'PUT',
     headers,
-    body: JSON.stringify(updates)
+    body: JSON.stringify(Object.fromEntries(
+      Object.entries(updates).filter(([key]) => key !== 'listId')
+    ))
   });
-  if (!response.ok) throw new Error('Failed to update grocery item');
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Error updating item: ${errorText}`);
+    throw new Error('Failed to update grocery item');
+  }
   return response.json();
 };
 
@@ -98,13 +115,13 @@ export const getMasterList = async () => {
 };
 
 // Add item to master list - make sure we're sending the correct parameters
-export const addMasterListItem = async (name) => {
+export const addMasterListItem = async (name, tags = []) => {
   const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
   
   const response = await fetch(`${API_URL}/master-list/items`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ name })
+    body: JSON.stringify({ name, tags })
   });
   
   if (!response.ok) {
@@ -127,9 +144,10 @@ export const deleteGroceryList = async (listId) => {
 
 // Update a master list item
 export const updateMasterListItem = async (itemId, updates) => {
+  const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
   const response = await fetch(`${API_URL}/master-list-items/${itemId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(updates)
   });
   if (!response.ok) throw new Error('Failed to update master list item');

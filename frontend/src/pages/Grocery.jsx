@@ -79,7 +79,8 @@ export default function Grocery() {
     addToMasterList,
     deleteMasterItem,
     toggleMasterItem,
-    toggleAllMasterItems
+    toggleAllMasterItems,
+    updateMasterItem
   } = useMasterList(user);
 
   const {
@@ -642,7 +643,27 @@ export default function Grocery() {
         });
       }
 
-      await updateItem(itemId, updates);
+      // Update the item in the appropriate list based on the view
+      if (view === VIEWS.MASTER) {
+        await updateMasterItem(itemId, updates);
+      } else {
+        // First update the item in the current list
+        const updatedItem = await updateItem(itemId, updates);
+
+        // Find the corresponding item in the master list by name
+        const masterItem = masterList?.items?.find(item => 
+          item.name.toLowerCase() === updatedItem.name.toLowerCase()
+        );
+
+        // If found in master list, update it there too
+        if (masterItem) {
+          await updateMasterItem(masterItem.id, updates);
+        } else {
+          // If not found in master list, add it
+          await addToMasterList(updatedItem.name, updatedItem.tags);
+        }
+      }
+
       setEditingItem(null);
     } catch {
       setNotification({
@@ -938,7 +959,7 @@ export default function Grocery() {
   }, [newItem, setNewItem, addItem, addToMasterList, masterList, setNotification]);
 
   // Create add item form
-  const addItemForm = view === VIEWS.LIST && (
+  const addItemForm = (view === VIEWS.LIST || view === VIEWS.MASTER) && (
     <form onSubmit={(e) => {
       e.preventDefault();
       handleAddNewItem();

@@ -39,17 +39,19 @@ async function initializeDatabase() {
 
     // Create grocery_items table
     await db.query(`
+      DROP TABLE IF EXISTS grocery_items CASCADE;
       CREATE TABLE IF NOT EXISTS grocery_items (
         id SERIAL PRIMARY KEY,
         list_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
+        master_item_id INTEGER NOT NULL,
         completed BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        FOREIGN KEY (list_id) REFERENCES grocery_lists(id) ON DELETE CASCADE
+        FOREIGN KEY (list_id) REFERENCES grocery_lists(id) ON DELETE CASCADE,
+        FOREIGN KEY (master_item_id) REFERENCES master_list_items(id) ON DELETE CASCADE
       );
     `);
 
-    // Create master_lists table
+    // Create master_lists table if it doesn't exist
     await db.query(`
       CREATE TABLE IF NOT EXISTS master_lists (
         id SERIAL PRIMARY KEY,
@@ -59,7 +61,7 @@ async function initializeDatabase() {
       );
     `);
 
-    // Create master_list_items table
+    // Create master_list_items table if it doesn't exist
     await db.query(`
       CREATE TABLE IF NOT EXISTS master_list_items (
         id SERIAL PRIMARY KEY,
@@ -68,6 +70,35 @@ async function initializeDatabase() {
         completed BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         FOREIGN KEY (master_list_id) REFERENCES master_lists(id) ON DELETE CASCADE
+      );
+    `);
+
+    // Create tags table if it doesn't exist
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS tags (
+        id SERIAL PRIMARY KEY,
+        text TEXT NOT NULL,
+        color TEXT NOT NULL,
+        user_id UUID NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE (text, user_id)
+      );
+    `);
+
+    // Drop item_tags table since tags will only be stored with master items
+    await db.query(`DROP TABLE IF EXISTS item_tags CASCADE;`);
+
+    // Create item_tags_master table for master list items
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS item_tags_master (
+        id SERIAL PRIMARY KEY,
+        item_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        FOREIGN KEY (item_id) REFERENCES master_list_items(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE,
+        UNIQUE (item_id, tag_id)
       );
     `);
 

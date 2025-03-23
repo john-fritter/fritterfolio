@@ -99,7 +99,7 @@ app.get('/api/grocery-lists', authenticate, async (req, res) => {
              ELSE json_agg(
                json_build_object(
                  'id', gi.id,
-                 'name', gi.name,
+                 'name', mli.name,
                  'completed', gi.completed,
                  'created_at', gi.created_at,
                  'tags', COALESCE(
@@ -107,9 +107,9 @@ app.get('/api/grocery-lists', authenticate, async (req, res) => {
                      SELECT json_agg(
                        json_build_object('text', t.text, 'color', t.color)
                      )
-                     FROM item_tags it
-                     JOIN tags t ON it.tag_id = t.id
-                     WHERE it.item_id = gi.id
+                     FROM item_tags_master itm
+                     JOIN tags t ON itm.tag_id = t.id
+                     WHERE itm.item_id = mli.id
                    ),
                    '[]'
                  )
@@ -117,6 +117,7 @@ app.get('/api/grocery-lists', authenticate, async (req, res) => {
              )
            END as items
          FROM grocery_items gi
+         JOIN master_list_items mli ON mli.id = gi.master_item_id
          GROUP BY gi.list_id
        ),
        share_info AS (
@@ -180,12 +181,13 @@ app.get('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
       SELECT 
         gl.id,
         gl.owner_id,
-        sl.id as share_id,
-        sl.status as share_status
+        COALESCE(sl.id, sl2.id) as share_id,
+        COALESCE(sl.status, sl2.status) as share_status
       FROM grocery_lists gl
       LEFT JOIN shared_lists sl ON sl.list_id = gl.id AND sl.shared_with_id = $1
-      WHERE gl.id = $2 AND (gl.owner_id = $3 OR (sl.status = 'accepted' AND sl.shared_with_id = $4))
-    `, [userId, listId, userId, userId]);
+      LEFT JOIN shared_lists sl2 ON sl2.list_id = gl.id AND sl2.shared_with_email = $2
+      WHERE gl.id = $3 AND (gl.owner_id = $4 OR sl.status = 'accepted' OR sl2.status = 'accepted')
+    `, [userId, req.user.email, listId, userId]);
 
     if (listAccessResult.rows.length === 0) {
       return res.status(403).json({ 
@@ -194,46 +196,37 @@ app.get('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
       });
     }
 
-    // Now fetch the items with their tags
+    // Now fetch the items with their tags from master list items
     const itemsResult = await db.query(`
       SELECT 
         gi.id,
-        gi.name,
         gi.completed,
         gi.created_at,
+        gi.master_item_id,
+        mli.name,
         COALESCE(
           json_agg(
-            json_build_object(
-              'text', t.text,
-              'color', t.color
-            )
+            CASE 
+              WHEN t.id IS NOT NULL THEN 
+                json_build_object('text', t.text, 'color', t.color)
+              ELSE NULL 
+            END
           ) FILTER (WHERE t.id IS NOT NULL),
           '[]'
         ) as tags
       FROM grocery_items gi
-      LEFT JOIN item_tags it ON it.item_id = gi.id
-      LEFT JOIN tags t ON t.id = it.tag_id
+      JOIN master_list_items mli ON mli.id = gi.master_item_id
+      LEFT JOIN item_tags_master itm ON itm.item_id = mli.id
+      LEFT JOIN tags t ON t.id = itm.tag_id
       WHERE gi.list_id = $1
-      GROUP BY gi.id
+      GROUP BY gi.id, gi.completed, gi.created_at, gi.master_item_id, mli.name
       ORDER BY gi.created_at DESC
     `, [listId]);
 
-    // Format the items
-    const formattedItems = itemsResult.rows.map(item => ({
-      id: item.id,
-      name: item.name,
-      completed: item.completed,
-      created_at: item.created_at,
-      tags: Array.isArray(item.tags) ? item.tags : []
-    }));
-
-    res.json(formattedItems);
-  } catch (error) {
-    console.error('Error fetching items:', error);
-    res.status(500).json({ 
-      error: 'Database error',
-      message: 'Failed to fetch items. Please try again.'
-    });
+    res.json(itemsResult.rows);
+  } catch (err) {
+    console.error('Error in /api/grocery-lists/:listId/items:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -242,12 +235,128 @@ app.post('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
   const { name } = req.body;
   const userId = req.user.id;
 
-  if (!name || !name.trim()) {
-    return res.status(400).json({ 
-      error: 'Invalid input',
-      message: 'Item name is required'
-    });
+  try {
+    await db.query('BEGIN');
+
+    // First check if user has access to this list
+    const listAccess = await db.query(`
+      SELECT gl.id, gl.owner_id, sl.shared_with_id 
+      FROM grocery_lists gl
+      LEFT JOIN shared_lists sl ON gl.id = sl.list_id AND sl.status = 'accepted'
+      WHERE gl.id = $1 AND (gl.owner_id = $2 OR sl.shared_with_id = $2)
+    `, [listId, userId]);
+
+    if (listAccess.rows.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'You do not have access to this list'
+      });
+    }
+
+    // Check for duplicates in the current list
+    const duplicateCheck = await db.query(`
+      SELECT gi.id 
+      FROM grocery_items gi
+      JOIN master_list_items mli ON gi.master_item_id = mli.id
+      WHERE gi.list_id = $1 AND LOWER(mli.name) = LOWER($2)
+    `, [listId, name.trim()]);
+
+    if (duplicateCheck.rows.length > 0) {
+      await db.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Duplicate item',
+        message: 'This item is already in your list'
+      });
+    }
+
+    // Get user's master list
+    const masterList = await db.query(`
+      SELECT id FROM master_lists WHERE user_id = $1
+    `, [userId]);
+
+    let masterListId;
+    if (masterList.rows.length === 0) {
+      // Create master list if it doesn't exist
+      const newMasterList = await db.query(`
+        INSERT INTO master_lists (user_id) VALUES ($1) RETURNING id
+      `, [userId]);
+      masterListId = newMasterList.rows[0].id;
+    } else {
+      masterListId = masterList.rows[0].id;
+    }
+
+    // Check if item exists in master list (case-insensitive)
+    const existingMasterItem = await db.query(`
+      SELECT mli.id, mli.name,
+        COALESCE(
+          json_agg(
+            json_build_object('text', t.text, 'color', t.color)
+          ) FILTER (WHERE t.id IS NOT NULL),
+          '[]'
+        ) as tags
+      FROM master_list_items mli
+      LEFT JOIN item_tags_master itm ON mli.id = itm.item_id
+      LEFT JOIN tags t ON itm.tag_id = t.id
+      WHERE mli.master_list_id = $1 AND LOWER(mli.name) = LOWER($2)
+      GROUP BY mli.id
+    `, [masterListId, name.trim()]);
+
+    let masterItemId;
+    if (existingMasterItem.rows.length > 0) {
+      // Use existing master item
+      masterItemId = existingMasterItem.rows[0].id;
+    } else {
+      // Create new master item
+      const newMasterItem = await db.query(`
+        INSERT INTO master_list_items (master_list_id, name)
+        VALUES ($1, $2)
+        RETURNING id
+      `, [masterListId, name.trim()]);
+      masterItemId = newMasterItem.rows[0].id;
+    }
+
+    // Add item to grocery list
+    const result = await db.query(`
+      INSERT INTO grocery_items (list_id, master_item_id)
+      VALUES ($1, $2)
+      RETURNING id, completed, created_at
+    `, [listId, masterItemId]);
+
+    // Get the complete item data including tags
+    const newItem = await db.query(`
+      SELECT 
+        gi.id,
+        gi.completed,
+        gi.created_at,
+        mli.name,
+        COALESCE(
+          json_agg(
+            json_build_object('text', t.text, 'color', t.color)
+          ) FILTER (WHERE t.id IS NOT NULL),
+          '[]'
+        ) as tags
+      FROM grocery_items gi
+      JOIN master_list_items mli ON gi.master_item_id = mli.id
+      LEFT JOIN item_tags_master itm ON mli.id = itm.item_id
+      LEFT JOIN tags t ON itm.tag_id = t.id
+      WHERE gi.id = $1
+      GROUP BY gi.id, gi.completed, gi.created_at, mli.name
+    `, [result.rows[0].id]);
+
+    await db.query('COMMIT');
+    res.json(newItem.rows[0]);
+  } catch (err) {
+    await db.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
   }
+});
+
+app.put('/api/grocery-lists/:listId/items/:itemId', authenticate, async (req, res) => {
+  const { listId, itemId } = req.params;
+  const { name, completed, tags } = req.body;
+  const userId = req.user.id;
 
   try {
     // First check if user has access to this list
@@ -269,182 +378,102 @@ app.post('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
       });
     }
 
-    // Check for duplicates case-insensitively
-    const duplicateResult = await db.query(`
-      SELECT id FROM grocery_items 
-      WHERE list_id = $1 AND LOWER(name) = LOWER($2)
-    `, [listId, name.trim()]);
+    await db.query('BEGIN');
 
-    if (duplicateResult.rows.length > 0) {
-      return res.status(400).json({ 
-        error: 'Duplicate item',
-        message: 'This item already exists in the list'
+    // Get the current item to get its master_item_id
+    const currentItem = await db.query(
+      'SELECT master_item_id FROM grocery_items WHERE id = $1',
+      [itemId]
+    );
+
+    if (currentItem.rows.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(404).json({
+        error: 'Not found',
+        message: 'Item not found'
       });
     }
 
-    // Add the item
-    const insertResult = await db.query(`
-      INSERT INTO grocery_items (list_id, name, completed)
-      VALUES ($1, $2, false)
-      RETURNING id, name, completed, created_at
-    `, [listId, name.trim()]);
+    const masterItemId = currentItem.rows[0].master_item_id;
 
-    const newItem = insertResult.rows[0];
-
-    // Check if this is a shared list, and if so, add the item to the other user's master list
-    await db.query('BEGIN');
-    try {
-      // Check if this list is shared
-      const shareQuery = await db.query(`
-        SELECT * FROM shared_lists
-        WHERE list_id = $1 AND (owner_id = $2 OR shared_with_id = $2)
-        AND status = 'accepted'
-      `, [listId, userId]);
-      
-      if (shareQuery.rows.length > 0) {
-        const shareInfo = shareQuery.rows[0];
-        
-        // Determine the other user ID (the one who should get this in their master list)
-        const otherUserId = shareInfo.owner_id === userId 
-          ? shareInfo.shared_with_id   // This user is the owner, so other user is the recipient
-          : shareInfo.owner_id;        // This user is the recipient, so other user is the owner
-          
-        if (otherUserId) {
-          // Get or create the other user's master list
-          let masterListResult = await db.query(
-            'SELECT id FROM master_lists WHERE user_id = $1',
-            [otherUserId]
-          );
-          
-          let masterListId;
-          
-          if (masterListResult.rows.length === 0) {
-            // Create master list for this user
-            const newMasterList = await db.query(
-              'INSERT INTO master_lists (user_id) VALUES ($1) RETURNING id',
-              [otherUserId]
-            );
-            masterListId = newMasterList.rows[0].id;
-          } else {
-            masterListId = masterListResult.rows[0].id;
-          }
-          
-          // Check if item already exists in the master list (case insensitive)
-          const duplicateMasterCheck = await db.query(`
-            SELECT id FROM master_list_items 
-            WHERE master_list_id = $1 AND LOWER(name) = LOWER($2)
-          `, [masterListId, name.trim()]);
-          
-          // If no duplicate, add to master list
-          if (duplicateMasterCheck.rows.length === 0) {
-            await db.query(
-              'INSERT INTO master_list_items (master_list_id, name) VALUES ($1, $2)',
-              [masterListId, name.trim()]
-            );
-          }
-        }
-      }
-      
-      await db.query('COMMIT');
-    } catch (error) {
-      await db.query('ROLLBACK');
-      console.error('Error adding item to other user\'s master list:', error);
-      // Continue without failing the original operation
+    // If name is being updated, update it in the master list item
+    if (name) {
+      await db.query(
+        'UPDATE master_list_items SET name = $1 WHERE id = $2',
+        [name.trim(), masterItemId]
+      );
     }
 
-    res.status(201).json({
-      ...newItem,
-      tags: []
-    });
-  } catch (error) {
-    console.error('Error adding item:', error);
-    res.status(500).json({ 
-      error: 'Database error',
-      message: 'Failed to add item. Please try again.'
-    });
-  }
-});
-
-app.put('/api/grocery-items/:itemId', authenticate, async (req, res) => {
-  try {
-    const { itemId } = req.params;
-    const { completed, name, tags } = req.body;
-    let result;
-    
-    await db.query('BEGIN');
-    
-    if (name !== undefined) {
-      // Update item name
-      result = await db.query(
-        'UPDATE grocery_items SET name = $1 WHERE id = $2 RETURNING *',
-        [name, itemId]
+    // If tags are being updated, update them in the master list item
+    if (tags) {
+      // First remove all existing tags for this master item
+      await db.query(
+        'DELETE FROM item_tags_master WHERE item_id = $1',
+        [masterItemId]
       );
-      
-      // Handle tags if provided
-      if (tags !== undefined) {
-        // First, remove all existing tags for this item
-        await db.query(
-          'DELETE FROM item_tags WHERE item_id = $1',
-          [itemId]
+
+      // Then add the new tags
+      for (const tag of tags) {
+        // Get or create tag
+        const tagResult = await db.query(
+          `INSERT INTO tags (text, color, user_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (text, user_id) DO UPDATE SET color = $2
+           RETURNING id`,
+          [tag.text, tag.color, userId]
         );
-        
-        // Then add new tags
-        if (tags && tags.length > 0) {
-          for (const tag of tags) {
-            // First, get or create the tag
-            const tagResult = await db.query(
-              `INSERT INTO tags (text, color, user_id)
-               VALUES ($1, $2, $3)
-               ON CONFLICT (text, user_id) DO UPDATE SET color = $2
-               RETURNING id`,
-              [tag.text, tag.color, req.user.id]
-            );
-            
-            // Then create the item-tag association
-            await db.query(
-              'INSERT INTO item_tags (item_id, tag_id) VALUES ($1, $2)',
-              [itemId, tagResult.rows[0].id]
-            );
-          }
-        }
+
+        // Create tag association
+        await db.query(
+          'INSERT INTO item_tags_master (item_id, tag_id) VALUES ($1, $2)',
+          [masterItemId, tagResult.rows[0].id]
+        );
       }
-    } else {
-      // Update completion status
-      result = await db.query(
-        'UPDATE grocery_items SET completed = $1 WHERE id = $2 RETURNING *',
+    }
+
+    // Update the completed status in the grocery item
+    if (completed !== undefined) {
+      await db.query(
+        'UPDATE grocery_items SET completed = $1 WHERE id = $2',
         [completed, itemId]
       );
     }
-    
-    // Get the updated item with its tags
-    const updatedResult = await db.query(
-      `SELECT 
-        gi.*,
+
+    // Get the updated item with all its information
+    const result = await db.query(`
+      SELECT 
+        gi.id,
+        mli.name,
+        gi.completed,
+        gi.created_at,
+        gi.master_item_id,
         COALESCE(
           json_agg(
-            CASE 
-              WHEN t.id IS NOT NULL THEN 
-                json_build_object('text', t.text, 'color', t.color)
-              ELSE NULL 
-            END
+            json_build_object(
+              'text', t.text,
+              'color', t.color
+            )
           ) FILTER (WHERE t.id IS NOT NULL),
           '[]'
         ) as tags
       FROM grocery_items gi
-      LEFT JOIN item_tags it ON gi.id = it.item_id
-      LEFT JOIN tags t ON it.tag_id = t.id
+      JOIN master_list_items mli ON mli.id = gi.master_item_id
+      LEFT JOIN item_tags_master itm ON itm.item_id = mli.id
+      LEFT JOIN tags t ON t.id = itm.tag_id
       WHERE gi.id = $1
-      GROUP BY gi.id`,
-      [itemId]
-    );
-    
+      GROUP BY gi.id, mli.name, gi.completed, gi.created_at, gi.master_item_id
+    `, [itemId]);
+
     await db.query('COMMIT');
-    
-    res.json(updatedResult.rows[0]);
-  } catch (err) {
+
+    res.json(result.rows[0]);
+  } catch (error) {
     await db.query('ROLLBACK');
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('Error updating item:', error);
+    res.status(500).json({ 
+      error: 'Database error',
+      message: 'Failed to update item. Please try again.'
+    });
   }
 });
 
@@ -478,8 +507,26 @@ app.get('/api/master-list', authenticate, async (req, res) => {
     
     const masterListId = masterListResult.rows[0].id;
     
+    // Get items with their tags
     const items = await db.query(
-      'SELECT * FROM master_list_items WHERE master_list_id = $1 ORDER BY created_at',
+      `SELECT 
+        mli.*,
+        COALESCE(
+          json_agg(
+            CASE 
+              WHEN t.id IS NOT NULL THEN 
+                json_build_object('text', t.text, 'color', t.color)
+              ELSE NULL 
+            END
+          ) FILTER (WHERE t.id IS NOT NULL),
+          '[]'
+        ) as tags
+      FROM master_list_items mli
+      LEFT JOIN item_tags_master itm ON mli.id = itm.item_id
+      LEFT JOIN tags t ON itm.tag_id = t.id
+      WHERE mli.master_list_id = $1
+      GROUP BY mli.id
+      ORDER BY mli.created_at`,
       [masterListId]
     );
     
@@ -496,7 +543,7 @@ app.get('/api/master-list', authenticate, async (req, res) => {
 // Master List Item Routes
 app.post('/api/master-list/items', authenticate, async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, tags } = req.body;
     const userId = req.user.id;
     
     if (!name) {
@@ -522,14 +569,63 @@ app.post('/api/master-list/items', authenticate, async (req, res) => {
       masterListId = masterListResult.rows[0].id;
     }
     
+    await db.query('BEGIN');
+    
     // Add item to master list
     const result = await db.query(
       'INSERT INTO master_list_items (master_list_id, name) VALUES ($1, $2) RETURNING *',
       [masterListId, name]
     );
     
-    res.status(201).json(result.rows[0]);
+    const newItem = result.rows[0];
+    
+    // Handle tags if provided
+    if (tags && tags.length > 0) {
+      for (const tag of tags) {
+        // First, get or create the tag
+        const tagResult = await db.query(
+          `INSERT INTO tags (text, color, user_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (text, user_id) DO UPDATE SET color = $2
+           RETURNING id`,
+          [tag.text, tag.color, userId]
+        );
+        
+        // Then create the item-tag association
+        await db.query(
+          'INSERT INTO item_tags_master (item_id, tag_id) VALUES ($1, $2)',
+          [newItem.id, tagResult.rows[0].id]
+        );
+      }
+    }
+    
+    // Get the item with its tags
+    const itemWithTags = await db.query(
+      `SELECT 
+        mli.*,
+        COALESCE(
+          json_agg(
+            CASE 
+              WHEN t.id IS NOT NULL THEN 
+                json_build_object('text', t.text, 'color', t.color)
+              ELSE NULL 
+            END
+          ) FILTER (WHERE t.id IS NOT NULL),
+          '[]'
+        ) as tags
+      FROM master_list_items mli
+      LEFT JOIN item_tags_master itm ON mli.id = itm.item_id
+      LEFT JOIN tags t ON itm.tag_id = t.id
+      WHERE mli.id = $1
+      GROUP BY mli.id`,
+      [newItem.id]
+    );
+    
+    await db.query('COMMIT');
+    
+    res.status(201).json(itemWithTags.rows[0]);
   } catch (err) {
+    await db.query('ROLLBACK');
     console.error('Error adding master list item:', err);
     res.status(500).json({ error: 'Server error' });
   }
@@ -579,40 +675,155 @@ app.delete('/api/grocery-lists/:listId', async (req, res) => {
 });
 
 // Update master list item
-app.put('/api/master-list-items/:itemId', async (req, res) => {
+app.put('/api/master-list-items/:itemId', authenticate, async (req, res) => {
   try {
     const { itemId } = req.params;
-    const { completed, name } = req.body;
+    const { completed, name, tags } = req.body;
     let result;
     
+    await db.query('BEGIN');
+    
     if (name !== undefined) {
+      // Update item name
       result = await db.query(
         'UPDATE master_list_items SET name = $1 WHERE id = $2 RETURNING *',
         [name, itemId]
       );
+      
+      // Handle tags if provided
+      if (tags !== undefined) {
+        // First, remove all existing tags for this item
+        await db.query(
+          'DELETE FROM item_tags_master WHERE item_id = $1',
+          [itemId]
+        );
+        
+        // Then add new tags
+        if (tags && tags.length > 0) {
+          for (const tag of tags) {
+            // First, get or create the tag
+            const tagResult = await db.query(
+              `INSERT INTO tags (text, color, user_id)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (text, user_id) DO UPDATE SET color = $2
+               RETURNING id`,
+              [tag.text, tag.color, req.user.id]
+            );
+            
+            // Then create the item-tag association
+            await db.query(
+              'INSERT INTO item_tags_master (item_id, tag_id) VALUES ($1, $2)',
+              [itemId, tagResult.rows[0].id]
+            );
+          }
+        }
+      }
     } else {
+      // Update completion status
       result = await db.query(
         'UPDATE master_list_items SET completed = $1 WHERE id = $2 RETURNING *',
         [completed, itemId]
       );
     }
     
-    res.json(result.rows[0]);
+    // Get the updated item with its tags
+    const updatedResult = await db.query(
+      `SELECT 
+        mli.*,
+        COALESCE(
+          json_agg(
+            CASE 
+              WHEN t.id IS NOT NULL THEN 
+                json_build_object('text', t.text, 'color', t.color)
+              ELSE NULL 
+            END
+          ) FILTER (WHERE t.id IS NOT NULL),
+          '[]'
+        ) as tags
+      FROM master_list_items mli
+      LEFT JOIN item_tags_master itm ON mli.id = itm.item_id
+      LEFT JOIN tags t ON itm.tag_id = t.id
+      WHERE mli.id = $1
+      GROUP BY mli.id`,
+      [itemId]
+    );
+    
+    await db.query('COMMIT');
+    
+    res.json(updatedResult.rows[0]);
   } catch (err) {
+    await db.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
 // Delete master list item
-app.delete('/api/master-list-items/:itemId', async (req, res) => {
+app.delete('/api/master-list-items/:itemId', authenticate, async (req, res) => {
+  const { itemId } = req.params;
+  const userId = req.user.id;
+
   try {
-    const { itemId } = req.params;
-    await db.query('DELETE FROM master_list_items WHERE id = $1', [itemId]);
-    res.json({ message: 'Item deleted' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    await db.query('BEGIN');
+
+    // First check if this master list item belongs to the user
+    const masterItemCheck = await db.query(`
+      SELECT mli.id 
+      FROM master_list_items mli
+      JOIN master_lists ml ON ml.id = mli.master_list_id
+      WHERE mli.id = $1 AND ml.user_id = $2
+    `, [itemId, userId]);
+
+    if (masterItemCheck.rows.length === 0) {
+      await db.query('ROLLBACK');
+      return res.status(403).json({
+        error: 'Access denied',
+        message: 'You do not have access to this item'
+      });
+    }
+
+    // Check how many lists this item is in
+    const listCountResult = await db.query(`
+      SELECT COUNT(DISTINCT list_id) as list_count,
+             array_agg(DISTINCT gl.name) as list_names
+      FROM grocery_items gi
+      JOIN grocery_lists gl ON gl.id = gi.list_id
+      WHERE gi.master_item_id = $1
+    `, [itemId]);
+
+    const { list_count, list_names } = listCountResult.rows[0];
+
+    // If item is in multiple lists, return a warning response
+    if (list_count > 0) {
+      await db.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'Item in use',
+        message: `This item is currently in ${list_count} list(s): ${list_names.join(', ')}. Deleting it will remove it from all these lists. Are you sure you want to proceed?`,
+        requireConfirmation: true,
+        affectedLists: list_names
+      });
+    }
+
+    // If confirmed or item is not in any lists, proceed with deletion
+    if (req.query.confirmed === 'true' || list_count === 0) {
+      // Delete from master_list_items (this will cascade to item_tags_master and grocery_items)
+      await db.query('DELETE FROM master_list_items WHERE id = $1', [itemId]);
+      await db.query('COMMIT');
+      res.json({ message: 'Item deleted successfully' });
+    } else {
+      await db.query('ROLLBACK');
+      res.status(400).json({
+        error: 'Confirmation required',
+        message: 'Please confirm deletion of item from all lists'
+      });
+    }
+  } catch (error) {
+    await db.query('ROLLBACK');
+    console.error('Error deleting master list item:', error);
+    res.status(500).json({ 
+      error: 'Database error',
+      message: 'Failed to delete item. Please try again.'
+    });
   }
 });
 
@@ -1001,7 +1212,23 @@ app.put('/api/shared-lists/:shareId', authenticate, async (req, res) => {
         
         // Get all items from the shared list
         const listItemsResult = await db.query(
-          'SELECT id, name FROM grocery_items WHERE list_id = $1',
+          `SELECT 
+            gi.*,
+            COALESCE(
+              json_agg(
+                CASE 
+                  WHEN t.id IS NOT NULL THEN 
+                    json_build_object('text', t.text, 'color', t.color)
+                  ELSE NULL 
+                END
+              ) FILTER (WHERE t.id IS NOT NULL),
+              '[]'
+            ) as tags
+          FROM grocery_items gi
+          LEFT JOIN item_tags it ON gi.id = it.item_id
+          LEFT JOIN tags t ON it.tag_id = t.id
+          WHERE gi.list_id = $1
+          GROUP BY gi.id`,
           [share.list_id]
         );
         
@@ -1020,10 +1247,32 @@ app.put('/api/shared-lists/:shareId', authenticate, async (req, res) => {
           const normalizedName = item.name.toLowerCase().trim();
           
           if (!existingMasterItemNames.has(normalizedName)) {
-            await db.query(
-              'INSERT INTO master_list_items (master_list_id, name) VALUES ($1, $2)',
+            // First add the item
+            const newMasterItem = await db.query(
+              'INSERT INTO master_list_items (master_list_id, name) VALUES ($1, $2) RETURNING *',
               [masterListId, item.name]
             );
+            
+            // Then add any tags
+            if (item.tags && item.tags.length > 0) {
+              for (const tag of item.tags) {
+                // First, get or create the tag
+                const tagResult = await db.query(
+                  `INSERT INTO tags (text, color, user_id)
+                   VALUES ($1, $2, $3)
+                   ON CONFLICT (text, user_id) DO UPDATE SET color = $2
+                   RETURNING id`,
+                  [tag.text, tag.color, req.user.id]
+                );
+                
+                // Then create the item-tag association
+                await db.query(
+                  'INSERT INTO item_tags_master (item_id, tag_id) VALUES ($1, $2)',
+                  [newMasterItem.rows[0].id, tagResult.rows[0].id]
+                );
+              }
+            }
+            
             existingMasterItemNames.add(normalizedName);
           }
         }
@@ -1086,13 +1335,14 @@ app.get('/api/shared-lists/accepted', authenticate, async (req, res) => {
              ELSE json_agg(
                json_build_object(
                  'id', gi.id,
-                 'name', gi.name,
+                 'name', mli.name,
                  'completed', gi.completed,
                  'created_at', gi.created_at
                )
              )
            END
          FROM grocery_items gi
+         JOIN master_list_items mli ON mli.id = gi.master_item_id
          WHERE gi.list_id = gl.id) as items
        FROM shared_lists sl
        JOIN grocery_lists gl ON sl.list_id = gl.id

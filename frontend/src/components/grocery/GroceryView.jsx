@@ -55,10 +55,11 @@ export default function GroceryView({
       const filtered = sourceItems.filter(item => 
         !currentTagFilter || item.tags?.some(tag => tag.text === currentTagFilter.text)
       );
-      return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
+      // Sort alphabetically by name, case-insensitive
+      return [...filtered].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     } else if (currentRenderView === 'master') {
       const masterItems = masterList?.items || [];
-      return masterItems.sort((a, b) => a.name.localeCompare(b.name));
+      return masterItems.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     }
     
     return [];
@@ -269,18 +270,39 @@ export default function GroceryView({
                     />
                   }
                   text={
-                    <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
-                      {item.name}
-                    </span>
+                    <div className="flex flex-col">
+                      <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
+                        {item.name}
+                      </span>
+                      {item.tags && item.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {item.tags.map(tag => (
+                            <span 
+                              key={tag.text} 
+                              className={`inline-flex items-center text-xs px-2 py-0.5 bg-${tag.color}-100 dark:bg-${tag.color}-900 text-${tag.color}-800 dark:text-${tag.color}-200 rounded-full cursor-pointer`}
+                            >
+                              {tag.text}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   }
                   rightElements={
-                    <ActionButton 
-                      title="Delete item"
-                      icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
-                      onClick={() => deleteMasterItem(item.id)}
-                      color="accent"
-                      iconColor="text-red-500"
-                    />
+                    <>
+                      <ActionButton 
+                        title="Edit item"
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />}
+                        onClick={() => setEditingItem(item)}
+                      />
+                      <ActionButton 
+                        title="Delete item"
+                        icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
+                        onClick={() => deleteMasterItem(item.id)}
+                        color="accent"
+                        iconColor="text-red-500"
+                      />
+                    </>
                   }
                 />
               ))}
