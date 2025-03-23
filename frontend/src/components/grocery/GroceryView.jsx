@@ -59,7 +59,11 @@ export default function GroceryView({
       return [...filtered].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     } else if (currentRenderView === 'master') {
       const masterItems = masterList?.items || [];
-      return masterItems.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+      // Apply tag filter to master items
+      const filtered = masterItems.filter(item => 
+        !currentTagFilter || item.tags?.some(tag => tag.text === currentTagFilter.text)
+      );
+      return filtered.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     }
     
     return [];
@@ -95,7 +99,24 @@ export default function GroceryView({
   // Generate title based on view
   const title = useMemo(() => {
     if (currentRenderView === 'lists') return "My Grocery Lists";
-    if (currentRenderView === 'master') return "Master List";
+    if (currentRenderView === 'master') return (
+      <div className="flex items-center gap-2">
+        <span>Master List</span>
+        {currentTagFilter && (
+          <div className="relative group">
+            <span className={`inline-flex items-center text-xs px-2 py-1 bg-${currentTagFilter.color}-100 dark:bg-${currentTagFilter.color}-900 text-${currentTagFilter.color}-800 dark:text-${currentTagFilter.color}-200 rounded-full whitespace-nowrap`}>
+              {currentTagFilter.text}
+              <button
+                onClick={() => setCurrentTagFilter(null)}
+                className="ml-1 flex items-center justify-center w-4 h-4 bg-gray-200 text-gray-600 rounded-full hover:bg-gray-300 border-0 outline-none"
+              >
+                <span className="text-xs font-bold">×</span>
+              </button>
+            </span>
+          </div>
+        )}
+      </div>
+    );
     if (currentRenderView === 'list' && currentList) {
       return (
         <div className="flex items-center gap-2">
@@ -198,9 +219,9 @@ export default function GroceryView({
           )}
 
           {/* LIST VIEW */}
-          {currentRenderView === 'list' && items && items.length > 0 && (
+          {currentRenderView === 'list' && listData.length > 0 && (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {items.map(item => (
+              {listData.map(item => (
                 <ListRow
                   key={item.id}
                   leftElement={
@@ -256,9 +277,9 @@ export default function GroceryView({
           )}
 
           {/* MASTER VIEW */}
-          {currentRenderView === 'master' && masterList?.items && masterList.items.length > 0 && (
+          {currentRenderView === 'master' && listData.length > 0 && (
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {masterList.items.map(item => (
+              {listData.map(item => (
                 <ListRow
                   key={item.id}
                   leftElement={
@@ -280,6 +301,10 @@ export default function GroceryView({
                             <span 
                               key={tag.text} 
                               className={`inline-flex items-center text-xs px-2 py-0.5 bg-${tag.color}-100 dark:bg-${tag.color}-900 text-${tag.color}-800 dark:text-${tag.color}-200 rounded-full cursor-pointer`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCurrentTagFilter(tag);
+                              }}
                             >
                               {tag.text}
                             </span>

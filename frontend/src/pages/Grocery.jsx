@@ -789,6 +789,11 @@ export default function Grocery() {
 
     const masterViewItems = [
       { 
+        label: "Filter by Tag",
+        action: () => setShowTagFilterModal(true),
+        show: view === VIEWS.MASTER && masterList?.items?.some(item => item.tags?.length > 0)
+      },
+      { 
         label: "Add Selected to Current List", 
         action: () => {
           if (!currentList) return;
@@ -1156,7 +1161,10 @@ export default function Grocery() {
       <TagFilterModal
         isOpen={showTagFilterModal}
         onClose={() => setShowTagFilterModal(false)}
-        tags={items?.flatMap(item => item.tags || []) || []}
+        tags={view === VIEWS.LIST 
+          ? items?.flatMap(item => item.tags || []) || []
+          : masterList?.items?.flatMap(item => item.tags || []) || []
+        }
         onSelectTag={setCurrentTagFilter}
       />
     </div>
