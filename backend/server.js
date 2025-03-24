@@ -1093,8 +1093,8 @@ app.post('/api/grocery-lists/:listId/share', authenticate, async (req, res) => {
     
     // Check if the list is already shared
     const sharedResult = await db.query(
-      'SELECT * FROM shared_lists WHERE list_id = $1',
-      [listId]
+      'SELECT * FROM shared_lists WHERE list_id = $1 AND status IN ($2, $3)',
+      [listId, 'pending', 'accepted']
     );
     
     if (sharedResult.rows.length > 0) {
@@ -1224,6 +1224,7 @@ app.put('/api/shared-lists/:shareId', authenticate, async (req, res) => {
         const listItemsResult = await db.query(
           `SELECT 
             gi.*,
+            mli.name,
             COALESCE(
               json_agg(
                 CASE 
@@ -1235,17 +1236,24 @@ app.put('/api/shared-lists/:shareId', authenticate, async (req, res) => {
               '[]'
             ) as tags
           FROM grocery_items gi
-          LEFT JOIN item_tags it ON gi.id = it.item_id
-          LEFT JOIN tags t ON it.tag_id = t.id
+          JOIN master_list_items mli ON gi.master_item_id = mli.id
+          LEFT JOIN item_tags_master itm ON mli.id = itm.item_id
+          LEFT JOIN tags t ON itm.tag_id = t.id
           WHERE gi.list_id = $1
-          GROUP BY gi.id`,
+          GROUP BY gi.id, mli.name`,
           [share.list_id]
         );
       } else if (status === 'rejected') {
-        // If rejected and there are no other pending shares for this list, remove the pending state
+        // Delete the rejected share record
+        await db.query(
+          'DELETE FROM shared_lists WHERE id = $1',
+          [shareId]
+        );
+
+        // If there are no other pending shares for this list, remove the pending state
         const otherPendingShares = await db.query(
-          'SELECT COUNT(*) as count FROM shared_lists WHERE list_id = $1 AND status = $2 AND id != $3',
-          [share.list_id, 'pending', shareId]
+          'SELECT COUNT(*) as count FROM shared_lists WHERE list_id = $1 AND status = $2',
+          [share.list_id, 'pending']
         );
         
         if (otherPendingShares.rows[0].count === '0') {
