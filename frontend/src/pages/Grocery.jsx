@@ -23,26 +23,28 @@ import { useGroceryLists } from '../hooks/grocery/useGroceryLists';
 import { useGroceryItems } from '../hooks/grocery/useGroceryItems';
 import { useMasterList } from '../hooks/grocery/useMasterList';
 import { useListSharing } from '../hooks/grocery/useListSharing';
-
-// Views enum
-const VIEWS = {
-  LIST: 'list',
-  MASTER: 'master',
-  LISTS: 'lists'
-};
+import { useGroceryInitialization, VIEWS } from '../hooks/grocery/useGroceryInitialization';
 
 export default function Grocery() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const newItemInputRef = useRef(null);
-  
-  // Add isInitializing state to track initialization process
-  const [isInitializing, setIsInitializing] = useState(true);
-  // Add state to track what should be rendered during initialization
-  const [initialView, setInitialView] = useState(null);
-  // Add refs to prevent infinite fetch loops
-  const masterListFetchedRef = useRef(false);
-  const listViewItemsFetchedRef = useRef(false);
+
+  // Local state
+  const [view, setView] = useState(() => {
+    const savedView = localStorage.getItem('groceryView');
+    return savedView || VIEWS.LISTS;
+  });
+  const [notification, setNotification] = useState(null);
+  const [editingList, setEditingList] = useState(null);
+  const [editingListName, setEditingListName] = useState('');
+  const [showListSelection, setShowListSelection] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [showPendingShares, setShowPendingShares] = useState(true);
+  const [editingItem, setEditingItem] = useState(null);
+  const [allTags, setAllTags] = useState([]);
+  const [currentTagFilter, setCurrentTagFilter] = useState(null);
+  const [showTagFilterModal, setShowTagFilterModal] = useState(false);
 
   // Use our custom hooks
   const {
@@ -95,69 +97,28 @@ export default function Grocery() {
     clearSyncNotification
   } = useListSharing(user);
 
-  // Local state
-  const [view, setView] = useState(() => {
-    const savedView = localStorage.getItem('groceryView');
-    return savedView || VIEWS.LISTS;
+  // Use our initialization hook
+  const {
+    isInitializing,
+    setIsInitializing,
+    initialView,
+    setInitialView,
+    masterListFetchedRef,
+    listViewItemsFetchedRef,
+    findListById
+  } = useGroceryInitialization({
+    user,
+    authLoading,
+    fetchGroceryLists,
+    fetchAcceptedShares,
+    fetchMasterList,
+    fetchItems,
+    setCurrentList,
+    setView,
+    currentList,
+    view,
+    pendingShares
   });
-  const [notification, setNotification] = useState(null);
-  const [editingList, setEditingList] = useState(null);
-  const [editingListName, setEditingListName] = useState('');
-  const [showListSelection, setShowListSelection] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [showPendingShares, setShowPendingShares] = useState(true);
-  const [editingItem, setEditingItem] = useState(null);
-  const [allTags, setAllTags] = useState([]);
-  const [currentTagFilter, setCurrentTagFilter] = useState(null);
-  const [showTagFilterModal, setShowTagFilterModal] = useState(false);
-  
-  // Ref to track if initial data has been loaded
-  const initialLoadRef = useRef(true);
-
-  // Helper function to find a list by ID in both own lists and shared lists
-  const findListById = useCallback((listId, ownLists = [], sharedLists = []) => {
-    if (!listId) return null;
-    
-    try {
-      const parsedId = parseInt(listId);
-      
-      // First check own lists
-      let targetList = ownLists.find(list => list.id === parsedId);
-      
-      // Then check shared lists
-      if (!targetList && Array.isArray(sharedLists) && sharedLists.length > 0) {
-        const sharedMatch = sharedLists.find(share => share.list_id === parsedId);
-        if (sharedMatch) {
-          targetList = {
-            id: sharedMatch.list_id,
-            name: sharedMatch.list_name,
-            is_shared: true,
-            shared_with_email: sharedMatch.owner_email,
-            is_received_share: true,
-            items: sharedMatch.items || []
-          };
-        }
-      }
-
-      // If it's one of our own lists, check for pending shares
-      if (targetList && !targetList.is_received_share) {
-        // Get the pending share status from the original list data if available
-        const originalList = ownLists.find(list => list.id === parsedId);
-        const hasPendingShare = originalList?.has_pending_share || pendingShares.some(share => share.list_id === targetList.id);
-        
-        targetList = {
-          ...targetList,
-          has_pending_share: hasPendingShare,
-          is_shared: targetList.is_shared || hasPendingShare
-        };
-      }
-      
-      return targetList;
-    } catch (error) {
-      console.error('Error finding list:', error);
-      return null;
-    }
-  }, [pendingShares]);
 
   // First effect: Handle authentication redirect
   useEffect(() => {
@@ -168,180 +129,6 @@ export default function Grocery() {
       navigate('/login');
     }
   }, [user, authLoading, navigate]);
-
-  // Second effect: Fetch basic data (lists and shares)
-  useEffect(() => {
-    if (!user || authLoading) return;
-    
-    const loadInitialData = async () => {
-      if (!initialLoadRef.current) return; // Skip if already initialized
-      
-      // Start initialization - keep the app in loading state
-      setIsInitializing(true);      
-      // Immediately set initialLoadRef to false to prevent rerunning
-      initialLoadRef.current = false;
-      
-      try {
-        // Get saved data from localStorage
-        const savedView = localStorage.getItem('groceryView') || VIEWS.LISTS;
-        const savedListId = localStorage.getItem('currentListId');
-        
-        // Set initial view to preserve what we're initializing to
-        // This prevents showing lists view during initialization
-        setInitialView(savedView);
-        
-        // Load lists and shares in parallel before trying to restore saved list        
-        const [ownLists, sharedLists, tags] = await Promise.all([
-          fetchGroceryLists(),
-          fetchAcceptedShares(),
-          api.getTags().catch(() => [])
-        ]);
-        
-        // Set tags
-        setAllTags(tags);
-        
-        // Define a function to set the correct final state based on saved data
-        const finalizeInitialization = (finalView) => {          
-          // First set localStorage values to ensure persistence
-          // Setting these outside the initialization effect prevents double updates
-          localStorage.setItem('groceryView', finalView);
-          
-          // Safely access currentList.id only if currentList exists
-          if (currentList?.id) {
-            localStorage.setItem('currentListId', currentList.id.toString());
-          }
-          
-          // Set the view we've determined is correct
-          setView(finalView);
-          
-          // After initialization is complete, reveal the UI
-          // This is done last to ensure all other updates have been applied
-          setIsInitializing(false);
-          setInitialView(null);
-        };
-        
-        // After lists are loaded, try to restore saved list
-        if (savedListId && savedView === VIEWS.LIST) {
-          
-          // Use the helper function to find the list by ID
-          const targetList = findListById(savedListId, ownLists, sharedLists);
-          
-          if (targetList) {
-            // Found the saved list - set up list view
-            
-            // Instead of immediately setting states, first fetch items
-            // and THEN batch the state updates to reduce renders
-            fetchItems(targetList.id, true)
-              .then(() => {
-                // Only now set current list and then finalize                
-                // Batch our state updates
-                // First set the current list
-                setCurrentList(targetList);
-                
-                // Then finalize initialization
-                // This avoids the extra render by setting everything at once
-                finalizeInitialization(VIEWS.LIST);
-              })
-              .catch((error) => {
-                console.error('Error fetching items:', error);
-                setCurrentList(targetList);
-                finalizeInitialization(VIEWS.LIST);
-              });
-          } else {
-            // List not found, fall back to lists view            
-            if (ownLists.length > 0) {
-              setCurrentList(ownLists[0]);
-            }
-            
-            finalizeInitialization(VIEWS.LISTS);
-          }
-        } else if (savedView === VIEWS.MASTER) {
-          // Master view - load master list          
-          // Try to restore the saved list if it exists
-          const targetList = findListById(savedListId, ownLists, sharedLists);
-          
-          if (targetList) {
-            setCurrentList(targetList);
-          } else if (ownLists.length > 0) {
-            // Fallback to first list if target not found
-            setCurrentList(ownLists[0]);
-          }
-          
-          // Mark that we will be fetching the master list during initialization
-          masterListFetchedRef.current = true;
-          
-          // Fetch master list and then finalize initialization with MASTER view
-          fetchMasterList()
-            .then(() => {
-              finalizeInitialization(VIEWS.MASTER);
-            })
-            .catch((error) => {
-              console.error('Error fetching master list:', error);
-              masterListFetchedRef.current = false; // Reset on error
-              finalizeInitialization(VIEWS.MASTER);
-            });
-        } else {
-          // Default to lists view          
-          // Try to restore the saved list if it exists
-          const targetList = findListById(savedListId, ownLists, sharedLists);
-          
-          if (targetList) {
-            setCurrentList(targetList);
-          } else if (ownLists.length > 0) {
-            // Fallback to first list if target not found
-            setCurrentList(ownLists[0]);
-          }
-          
-          finalizeInitialization(VIEWS.LISTS);
-        }
-      } catch (error) {
-        console.error('Error loading initial data:', error);
-        // In case of error, still finish initializing but reset the ref
-        setIsInitializing(false);
-        setInitialView(null);
-        setView(VIEWS.LISTS); // Default to lists view on error
-        initialLoadRef.current = true;
-      }
-    };
-    
-    loadInitialData();
-    
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading, fetchGroceryLists, fetchAcceptedShares, fetchMasterList, fetchItems, findListById]);
-
-  // Third effect: Load view-specific data
-  useEffect(() => {
-    if (!user || authLoading) return;
-
-    if (view === VIEWS.MASTER) {
-      // Always fetch the master list when entering master view
-      if (!masterListFetchedRef.current) {
-        masterListFetchedRef.current = true;
-        fetchMasterList()
-          .catch(error => {
-            console.error('Error fetching master list:', error);
-            masterListFetchedRef.current = false; // Reset on error
-          });
-      }
-    } else if (view === VIEWS.LIST && currentList?.id) {
-      const currentListId = currentList.id;
-      
-      // Only fetch items on view change or when currentList changes
-      if (!listViewItemsFetchedRef.current) {
-        listViewItemsFetchedRef.current = true;
-        
-        fetchItems(currentListId, true)
-          .catch(error => {
-            console.error('Error fetching list items:', error);
-            listViewItemsFetchedRef.current = false; // Reset on error
-          });
-        }
-    } else {
-      // Reset flags when changing to a different view
-      masterListFetchedRef.current = false;
-      listViewItemsFetchedRef.current = false;
-    }
-  }, [user, authLoading, view, fetchMasterList, fetchItems, currentList]);
 
   // Save view to localStorage
   useEffect(() => {
@@ -1011,7 +798,7 @@ export default function Grocery() {
       ...masterViewItems,
       deleteSelectedItems
     ];
-  }, [isInitializing, view, currentList, items, masterList, fetchMasterList, fetchItems, addItem, addToMasterList, toggleMasterItem, deleteItem, deleteMasterItem]);
+  }, [isInitializing, view, currentList, items, masterList.items, setIsInitializing, masterListFetchedRef, fetchMasterList, listViewItemsFetchedRef, fetchItems, addItem, addToMasterList, toggleMasterItem, deleteItem, deleteMasterItem]);
 
   // Handler for adding a new item to prevent duplicate master list entries
   const handleAddNewItem = useCallback(async () => {

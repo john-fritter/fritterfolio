@@ -248,13 +248,19 @@ app.post('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
   try {
     await db.query('BEGIN');
 
-    // First check if user has access to this list
+    // First check if user has access to this list and get list details
     const listAccess = await db.query(`
-      SELECT gl.id, gl.owner_id, sl.shared_with_id 
+      SELECT 
+        gl.id, 
+        gl.owner_id, 
+        gl.is_shared,
+        sl.shared_with_id,
+        sl2.shared_with_id as owner_share_id
       FROM grocery_lists gl
-      LEFT JOIN shared_lists sl ON gl.id = sl.list_id AND sl.status = 'accepted'
-      WHERE gl.id = $1 AND (gl.owner_id = $2 OR sl.shared_with_id = $2)
-    `, [listId, userId]);
+      LEFT JOIN shared_lists sl ON gl.id = sl.list_id AND sl.status = 'accepted' AND sl.shared_with_id = $1
+      LEFT JOIN shared_lists sl2 ON gl.id = sl2.list_id AND sl2.status = 'accepted' AND sl2.owner_id = $1
+      WHERE gl.id = $2 AND (gl.owner_id = $3 OR sl.shared_with_id = $3 OR sl2.owner_id = $3)
+    `, [userId, listId, userId]);
 
     if (listAccess.rows.length === 0) {
       await db.query('ROLLBACK');
@@ -263,6 +269,8 @@ app.post('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
         message: 'You do not have access to this list'
       });
     }
+
+    const listDetails = listAccess.rows[0];
 
     // Check for duplicates in the current list
     const duplicateCheck = await db.query(`
@@ -326,6 +334,60 @@ app.post('/api/grocery-lists/:listId/items', authenticate, async (req, res) => {
       masterItemId = newMasterItem.rows[0].id;
     }
 
+    // If this is a shared list, add the item to all users' master lists
+    if (listDetails.is_shared) {
+      // Get all users who have access to this list (owner and accepted shares)
+      const listUsers = await db.query(`
+        SELECT DISTINCT user_id
+        FROM (
+          -- Get the list owner
+          SELECT owner_id as user_id
+          FROM grocery_lists
+          WHERE id = $1
+          UNION
+          -- Get users who have been shared with
+          SELECT shared_with_id as user_id
+          FROM shared_lists
+          WHERE list_id = $1 AND status = 'accepted' AND shared_with_id IS NOT NULL
+          UNION
+          -- Get users who shared their lists
+          SELECT owner_id as user_id
+          FROM shared_lists
+          WHERE list_id = $1 AND status = 'accepted'
+        ) users
+      `, [listId]);
+
+      // For each user, add the item to their master list if it doesn't exist
+      for (const user of listUsers.rows) {
+        if (user.user_id !== userId) { // Skip the current user as we already handled them
+          // Get or create user's master list
+          let userMasterList = await db.query(`
+            SELECT id FROM master_lists WHERE user_id = $1
+          `, [user.user_id]);
+
+          let userMasterListId;
+          if (userMasterList.rows.length === 0) {
+            const newUserMasterList = await db.query(`
+              INSERT INTO master_lists (user_id) VALUES ($1) RETURNING id
+            `, [user.user_id]);
+            userMasterListId = newUserMasterList.rows[0].id;
+          } else {
+            userMasterListId = userMasterList.rows[0].id;
+          }
+
+          // Add item to user's master list if it doesn't exist
+          await db.query(`
+            INSERT INTO master_list_items (master_list_id, name)
+            SELECT $1, $2
+            WHERE NOT EXISTS (
+              SELECT 1 FROM master_list_items 
+              WHERE master_list_id = $1 AND LOWER(name) = LOWER($2)
+            )
+          `, [userMasterListId, name.trim()]);
+        }
+      }
+    }
+
     // Add item to grocery list
     const result = await db.query(`
       INSERT INTO grocery_items (list_id, master_item_id)
@@ -369,11 +431,12 @@ app.put('/api/grocery-lists/:listId/items/:itemId', authenticate, async (req, re
   const userId = req.user.id;
 
   try {
-    // First check if user has access to this list
+    // First check if user has access to this list and get list details
     const listAccessResult = await db.query(`
       SELECT 
         gl.id,
         gl.owner_id,
+        gl.is_shared,
         sl.id as share_id,
         sl.status as share_status
       FROM grocery_lists gl
@@ -388,11 +451,13 @@ app.put('/api/grocery-lists/:listId/items/:itemId', authenticate, async (req, re
       });
     }
 
+    const listDetails = listAccessResult.rows[0];
+
     await db.query('BEGIN');
 
-    // Get the current item to get its master_item_id
+    // Get the current item to get its master_item_id and name
     const currentItem = await db.query(
-      'SELECT master_item_id FROM grocery_items WHERE id = $1',
+      'SELECT gi.master_item_id, mli.name as current_name FROM grocery_items gi JOIN master_list_items mli ON mli.id = gi.master_item_id WHERE gi.id = $1',
       [itemId]
     );
 
@@ -405,26 +470,120 @@ app.put('/api/grocery-lists/:listId/items/:itemId', authenticate, async (req, re
     }
 
     const masterItemId = currentItem.rows[0].master_item_id;
+    const currentName = currentItem.rows[0].current_name;
 
-    // If name is being updated, update it in the master list item
-    if (name) {
+    // If name is being updated and this is a shared list
+    if (name && listDetails.is_shared) {
+      // Get all users who have access to this list
+      const listUsers = await db.query(`
+        SELECT DISTINCT user_id
+        FROM (
+          SELECT owner_id as user_id
+          FROM grocery_lists
+          WHERE id = $1
+          UNION
+          SELECT shared_with_id as user_id
+          FROM shared_lists
+          WHERE list_id = $1 AND status = 'accepted' AND shared_with_id IS NOT NULL
+        ) users
+      `, [listId]);
+
+      // For each user, update or create the item in their master list
+      for (const user of listUsers.rows) {
+        // Find the corresponding master list item for this user
+        const userMasterItem = await db.query(`
+          SELECT mli.id
+          FROM master_list_items mli
+          JOIN master_lists ml ON ml.id = mli.master_list_id
+          WHERE ml.user_id = $1 AND LOWER(mli.name) = LOWER($2)
+        `, [user.user_id, currentName]);
+
+        if (userMasterItem.rows.length > 0) {
+          // Update existing item
+          await db.query(
+            'UPDATE master_list_items SET name = $1 WHERE id = $2',
+            [name.trim(), userMasterItem.rows[0].id]
+          );
+        }
+      }
+    } else if (name) {
+      // Update name for non-shared list
       await db.query(
         'UPDATE master_list_items SET name = $1 WHERE id = $2',
         [name.trim(), masterItemId]
       );
     }
 
-    // If tags are being updated, update them in the master list item
-    if (tags) {
-      // First remove all existing tags for this master item
+    // If tags are being updated and this is a shared list
+    if (tags && listDetails.is_shared) {
+      // Get all users who have access to this list
+      const listUsers = await db.query(`
+        SELECT DISTINCT user_id
+        FROM (
+          SELECT owner_id as user_id
+          FROM grocery_lists
+          WHERE id = $1
+          UNION
+          SELECT shared_with_id as user_id
+          FROM shared_lists
+          WHERE list_id = $1 AND status = 'accepted' AND shared_with_id IS NOT NULL
+        ) users
+      `, [listId]);
+
+      // For each user, ensure they have these tags
+      for (const user of listUsers.rows) {
+        for (const tag of tags) {
+          // Get or create tag for each user
+          const tagResult = await db.query(
+            `INSERT INTO tags (text, color, user_id)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (text, user_id) DO UPDATE SET color = $2
+             RETURNING id`,
+            [tag.text, tag.color, user.user_id]
+          );
+
+          // Find the corresponding master list item for this user
+          const userMasterItem = await db.query(`
+            SELECT mli.id
+            FROM master_list_items mli
+            JOIN master_lists ml ON ml.id = mli.master_list_id
+            WHERE ml.user_id = $1 AND LOWER(mli.name) = (
+              SELECT LOWER(name) FROM master_list_items WHERE id = $2
+            )
+          `, [user.user_id, masterItemId]);
+
+          if (userMasterItem.rows.length > 0) {
+            // Create tag association if it doesn't exist
+            await db.query(
+              `INSERT INTO item_tags_master (item_id, tag_id)
+               VALUES ($1, $2)
+               ON CONFLICT (item_id, tag_id) DO NOTHING`,
+              [userMasterItem.rows[0].id, tagResult.rows[0].id]
+            );
+          }
+        }
+
+        // Remove any tags that are no longer present
+        if (user.user_id === userId) {
+          const tagTexts = tags.map(t => t.text);
+          await db.query(`
+            DELETE FROM item_tags_master itm
+            USING tags t
+            WHERE itm.item_id = $1
+            AND itm.tag_id = t.id
+            AND t.user_id = $2
+            AND t.text != ALL($3)
+          `, [masterItemId, userId, tagTexts]);
+        }
+      }
+    } else if (tags) {
+      // Handle tags for non-shared list (original behavior)
       await db.query(
         'DELETE FROM item_tags_master WHERE item_id = $1',
         [masterItemId]
       );
 
-      // Then add the new tags
       for (const tag of tags) {
-        // Get or create tag
         const tagResult = await db.query(
           `INSERT INTO tags (text, color, user_id)
            VALUES ($1, $2, $3)
@@ -433,7 +592,6 @@ app.put('/api/grocery-lists/:listId/items/:itemId', authenticate, async (req, re
           [tag.text, tag.color, userId]
         );
 
-        // Create tag association
         await db.query(
           'INSERT INTO item_tags_master (item_id, tag_id) VALUES ($1, $2)',
           [masterItemId, tagResult.rows[0].id]
@@ -673,7 +831,7 @@ app.post('/api/users', async (req, res) => {
 });
 
 // Delete a grocery list
-app.delete('/api/grocery-lists/:listId', async (req, res) => {
+app.delete('/api/grocery-lists/:listId', authenticate, async (req, res) => {
   try {
     const { listId } = req.params;
     await db.query('DELETE FROM grocery_lists WHERE id = $1', [listId]);
@@ -792,41 +950,17 @@ app.delete('/api/master-list-items/:itemId', authenticate, async (req, res) => {
       });
     }
 
-    // Check how many lists this item is in
-    const listCountResult = await db.query(`
-      SELECT COUNT(DISTINCT list_id) as list_count,
-             array_agg(DISTINCT gl.name) as list_names
-      FROM grocery_items gi
-      JOIN grocery_lists gl ON gl.id = gi.list_id
-      WHERE gi.master_item_id = $1
-    `, [itemId]);
-
-    const { list_count, list_names } = listCountResult.rows[0];
-
-    // If item is in multiple lists, return a warning response
-    if (list_count > 0) {
-      await db.query('ROLLBACK');
-      return res.status(409).json({
-        error: 'Item in use',
-        message: `This item is currently in ${list_count} list(s): ${list_names.join(', ')}. Deleting it will remove it from all these lists. Are you sure you want to proceed?`,
-        requireConfirmation: true,
-        affectedLists: list_names
-      });
-    }
-
-    // If confirmed or item is not in any lists, proceed with deletion
-    if (req.query.confirmed === 'true' || list_count === 0) {
-      // Delete from master_list_items (this will cascade to item_tags_master and grocery_items)
-      await db.query('DELETE FROM master_list_items WHERE id = $1', [itemId]);
-      await db.query('COMMIT');
-      res.json({ message: 'Item deleted successfully' });
-    } else {
-      await db.query('ROLLBACK');
-      res.status(400).json({
-        error: 'Confirmation required',
-        message: 'Please confirm deletion of item from all lists'
-      });
-    }
+    // Delete any tag associations first
+    await db.query('DELETE FROM item_tags_master WHERE item_id = $1', [itemId]);
+    
+    // Delete from grocery_items (this will remove references from all grocery lists)
+    await db.query('DELETE FROM grocery_items WHERE master_item_id = $1', [itemId]);
+    
+    // Finally delete from master_list_items
+    await db.query('DELETE FROM master_list_items WHERE id = $1', [itemId]);
+    
+    await db.query('COMMIT');
+    res.json({ message: 'Item deleted successfully' });
   } catch (error) {
     await db.query('ROLLBACK');
     console.error('Error deleting master list item:', error);
@@ -1408,13 +1542,18 @@ app.get('/api/shared-lists/accepted', authenticate, async (req, res) => {
   }
 });
 
-// Tags endpoints
+// Modify the tags endpoint to return all tags used in master list
 app.get('/api/tags', authenticate, async (req, res) => {
   try {
-    const result = await db.query(
-      'SELECT text, color FROM tags WHERE user_id = $1 ORDER BY text',
-      [req.user.id]
-    );
+    const result = await db.query(`
+      SELECT DISTINCT ON (t.text) t.text, t.color
+      FROM tags t
+      JOIN item_tags_master itm ON itm.tag_id = t.id
+      JOIN master_list_items mli ON mli.id = itm.item_id
+      JOIN master_lists ml ON ml.id = mli.master_list_id
+      WHERE ml.user_id = $1
+      ORDER BY t.text, t.created_at DESC
+    `, [req.user.id]);
     res.json(result.rows);
   } catch (err) {
     console.error(err);

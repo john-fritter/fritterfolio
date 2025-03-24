@@ -148,10 +148,23 @@ export const updateMasterListItem = async (itemId, updates) => {
 
 // Delete a master list item
 export const deleteMasterListItem = async (itemId) => {
+  const headers = { ...getAuthHeader() };
   const response = await fetch(`${API_URL}/master-list-items/${itemId}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers
   });
-  if (!response.ok) throw new Error('Failed to delete master list item');
+
+  // Handle 409 Conflict status specially
+  if (response.status === 409) {
+    const data = await response.json();
+    throw new Error(data.message || 'Item is in use in other lists');
+  }
+
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.message || 'Failed to delete master list item');
+  }
+
   return response.json();
 };
 
