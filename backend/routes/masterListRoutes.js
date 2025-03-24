@@ -11,6 +11,5 @@ router.get('/', masterListController.getMasterList);
 router.post('/items', masterListController.createItem);
 router.put('/items/:itemId', masterListController.updateItem);
 router.delete('/items/:itemId', masterListController.deleteItem);
-router.delete('/users/:userId/clear', masterListController.clearMasterList);
 
 module.exports = router; 

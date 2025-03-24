@@ -127,8 +127,10 @@ export const addMasterListItem = async (name, tags = []) => {
 
 // Delete a grocery list
 export const deleteGroceryList = async (listId) => {
+  const headers = { ...getAuthHeader() };
   const response = await fetch(`${API_URL}/grocery-lists/${listId}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers
   });
   if (!response.ok) throw new Error('Failed to delete grocery list');
   return response.json();
@@ -166,33 +168,6 @@ export const deleteMasterListItem = async (itemId) => {
   }
 
   return response.json();
-};
-
-// Add this function to your api.js file
-export const clearMasterList = async (userId) => {
-  try {
-    const response = await fetch(`${API_URL}/users/${userId}/master-list/clear`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getAuthToken()}`
-      }
-    });
-    
-    if (!response.ok) {
-      throw new Error('Failed to clear master list');
-    }
-    
-    return true;
-  } catch (error) {
-    console.error('API error:', error);
-    throw error;
-  }
-};
-
-// Ensure we have a proper way to get the auth token
-const getAuthToken = () => {
-  return localStorage.getItem('token') || '';
 };
 
 // Update a grocery list

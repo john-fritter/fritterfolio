@@ -268,39 +268,9 @@ const deleteItem = async (req, res) => {
   }
 };
 
-const clearMasterList = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    
-    // First get the master list id
-    const masterListResult = await db.query(
-      'SELECT id FROM master_lists WHERE user_id = $1',
-      [userId]
-    );
-    
-    if (masterListResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Master list not found' });
-    }
-    
-    const masterListId = masterListResult.rows[0].id;
-    
-    // Delete all items
-    await db.query(
-      'DELETE FROM master_list_items WHERE master_list_id = $1',
-      [masterListId]
-    );
-    
-    res.json({ message: 'Master list cleared successfully' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
-  }
-};
-
 module.exports = {
   getMasterList,
   createItem,
   updateItem,
-  deleteItem,
-  clearMasterList
+  deleteItem
 }; 
