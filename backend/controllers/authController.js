@@ -179,10 +179,105 @@ const protectedRoute = (req, res) => {
   res.json({ message: 'This is a protected route', user: req.user });
 };
 
+const demoLogin = async (req, res) => {
+  try {
+    console.log('Demo login initiated - SIMPLIFIED VERSION');
+    // Demo user credentials
+    const demoEmail = 'demo@user.com';
+    const demoPassword = 'demoaccount'; // Will be hashed
+    const demoName = 'Demo User';
+    
+    await db.query('BEGIN');
+    console.log('Transaction started');
+    
+    // Check if demo user exists
+    console.log('Checking if demo user exists...');
+    let result = await db.query(
+      'SELECT * FROM users WHERE email = $1',
+      [demoEmail]
+    );
+    
+    let user;
+    
+    if (result.rows.length === 0) {
+      console.log('Demo user does not exist, creating new user');
+      // Create demo user if it doesn't exist
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(demoPassword, salt);
+      const userId = uuidv4();
+      
+      result = await db.query(
+        'INSERT INTO users (id, email, password, name) VALUES ($1, $2, $3, $4) RETURNING id, email, name',
+        [userId, demoEmail, hashedPassword, demoName]
+      );
+      
+      user = result.rows[0];
+      console.log('New demo user created with ID:', user.id);
+    } else {
+      user = result.rows[0];
+      console.log('Existing demo user found with ID:', user.id);
+    }
+    
+    // Create a token
+    console.log('Creating auth token for demo user...');
+    const token = jwt.sign(
+      { userId: user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN }
+    );
+    
+    // Calculate expiration date
+    const expiration = new Date();
+    const daysToAdd = parseInt(process.env.JWT_EXPIRES_IN);
+    expiration.setDate(expiration.getDate() + (isNaN(daysToAdd) ? 7 : daysToAdd));
+
+    // Store token in database
+    await db.query(
+      'INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)',
+      [user.id, token, expiration]
+    );
+    
+    await db.query('COMMIT');
+    console.log('Demo login transaction committed successfully');
+    
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        isDemo: true
+      }
+    });
+    console.log('Demo login response sent');
+  } catch (err) {
+    console.error('Demo login error details:', err);
+    try {
+      await db.query('ROLLBACK');
+      console.log('Transaction rolled back due to error');
+    } catch (rollbackErr) {
+      console.error('Error during rollback:', rollbackErr);
+    }
+    
+    if (err.code) {
+      console.error(`PostgreSQL error code: ${err.code}`);
+      console.error(`Error detail: ${err.detail}`);
+      console.error(`Error constraint: ${err.constraint}`);
+      console.error(`Error table: ${err.table}`);
+    }
+    
+    res.status(500).json({ 
+      error: 'Server error during demo login. Please try again later.',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
   logout,
   getUser,
-  protectedRoute
+  protectedRoute,
+  demoLogin
 }; 

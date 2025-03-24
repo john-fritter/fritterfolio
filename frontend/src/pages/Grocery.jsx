@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { MAX_NAME_LENGTH } from '../utils/validation';
 
 // Import components
@@ -10,10 +11,12 @@ import PendingSharesNotification from '../components/grocery/PendingSharesNotifi
 import ItemEditingModal from '../components/grocery/ItemEditingModal';
 import TagFilterModal from '../components/grocery/TagFilterModal';
 import GroceryView from '../components/grocery/GroceryView';
+import DemoModeBanner from '../components/grocery/DemoModeBanner';
 
 // Import hooks
 import { useGroceryController } from '../hooks/grocery/useGroceryController';
 import { VIEWS } from '../hooks/grocery/useGroceryInitialization';
+import { useAuth } from '../hooks/auth';
 
 export default function Grocery() {
   const {
@@ -81,6 +84,33 @@ export default function Grocery() {
     
     initialView
   } = useGroceryController();
+  
+  // Get the auth context to check if user is in demo mode
+  const { user, logout } = useAuth();
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  
+  // Check if the user is in demo mode
+  useEffect(() => {
+    if (user && user.isDemo) {
+      setIsDemoMode(true);
+    } else {
+      setIsDemoMode(false);
+    }
+  }, [user]);
+  
+  // Handle demo mode logout
+  const handleExitDemo = async () => {
+    await logout();
+  };
+  
+  // Function to handle share attempts in demo mode
+  const handleDemoModeShare = () => {
+    setNotification({
+      message: 'Sharing is disabled in demo mode. Create an account to use this feature.',
+      type: 'warning'
+    });
+    setShowShareModal(false);
+  };
 
   // Create add item form
   const addItemForm = (view === VIEWS.LIST || view === VIEWS.MASTER) && (
@@ -163,6 +193,11 @@ export default function Grocery() {
       )}
 
       <div className="w-full max-w-3xl mx-auto px-2 sm:px-4 flex flex-col h-full min-w-0">
+        {/* Show demo mode banner if user is in demo mode */}
+        {isDemoMode && (
+          <DemoModeBanner onExit={handleExitDemo} />
+        )}
+        
         {/* Show pending shares notification if there are any */}
         {showPendingShares && pendingShares.length > 0 && (
           <PendingSharesNotification
@@ -182,7 +217,7 @@ export default function Grocery() {
           selectList={selectList}
           setEditingList={setEditingList}
           deleteList={handleDeleteList}
-          onShareList={handleShareListFromListsView}
+          onShareList={isDemoMode ? handleDemoModeShare : handleShareListFromListsView}
           // List view props
           items={items}
           currentList={currentList}
@@ -199,7 +234,16 @@ export default function Grocery() {
           deleteMasterItem={deleteMasterItem}
           // Common props
           isLoading={determineLoadingState()}
-          menuItems={getMenuItems()}
+          menuItems={getMenuItems().map(item => {
+            // Modify menu items for demo mode
+            if (isDemoMode && item.label === "Share Current List") {
+              return {
+                ...item,
+                action: handleDemoModeShare
+              };
+            }
+            return item;
+          })}
           addForm={
             view === 'lists' ? addListForm :
             view === 'list' ? addItemForm :
@@ -230,7 +274,7 @@ export default function Grocery() {
         listName={currentList?.name || ''}
         isShared={currentList?.is_shared || false}
         onClose={() => setShowShareModal(false)}
-        onShare={handleShareList}
+        onShare={isDemoMode ? handleDemoModeShare : handleShareList}
       />
 
       <ItemEditingModal

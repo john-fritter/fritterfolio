@@ -35,6 +35,17 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const demoLogin = async () => {
+    try {
+      const user = await auth.demoLogin();
+      setUser(user);
+      return user;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
   const register = async (email, password) => {
     try {
       const user = await auth.register(email, password);
@@ -61,6 +72,7 @@ export function AuthProvider({ children }) {
     loading,
     error,
     login,
+    demoLogin,
     register,
     logout
   };

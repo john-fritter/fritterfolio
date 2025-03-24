@@ -3,10 +3,9 @@ import SidebarLayout from "./layouts/SidebarLayout";
 import Home from "./pages/Home";
 import About from "./pages/About";
 import Adventure from "./pages/Adventure";
-import Grocery from "./pages/Grocery";
+import GroceryLanding from "./pages/GroceryLanding";
 import Login from "./components/Login";
 import { AuthProvider } from './context/AuthProvider';
-import ProtectedRoute from './components/ProtectedRoute';
 
 export default function App() {
   return (
@@ -18,11 +17,7 @@ export default function App() {
           <Route path="/adventure" element={<SidebarLayout><Adventure /></SidebarLayout>} />
           <Route 
             path="/grocery" 
-            element={
-              <ProtectedRoute>
-                <SidebarLayout><Grocery /></SidebarLayout>
-              </ProtectedRoute>
-            } 
+            element={<SidebarLayout><GroceryLanding /></SidebarLayout>} 
           />
           <Route path="/login" element={<SidebarLayout><Login /></SidebarLayout>} />
         </Routes>
