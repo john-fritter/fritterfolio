@@ -40,13 +40,13 @@ const getAllTags = async (req, res) => {
 };
 
 const deleteTag = async (req, res) => {
-  const { tagText } = req.params;
+  const { text } = req.params;
   
   try {
     // First find the tag
     const tagResult = await db.query(
       'DELETE FROM tags WHERE text = $1 AND user_id = $2 RETURNING *',
-      [tagText, req.user.id]
+      [text, req.user.id]
     );
     
     if (tagResult.rowCount === 0) {
