@@ -12,11 +12,8 @@ export const useMasterList = (user) => {
     
     try {
       setMasterLoading(true);
-      console.log('Fetching master list data from API...');
       
-      const rawResponse = await api.getMasterList();
-      console.log('MASTER LIST RAW API RESPONSE:', rawResponse);
-      
+      const rawResponse = await api.getMasterList();      
       // Handle case where API returns null or undefined
       const masterListData = rawResponse || { items: [] };
       

@@ -230,7 +230,6 @@ export default function GroceryView({
                     </>
                   }
                   onClick={() => {
-                    console.log("ListRow clicked, selecting list:", list.name);
                     selectList(list);
                   }}
                 />

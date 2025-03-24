@@ -5,7 +5,6 @@ import Notification from '../components/Notification';
 import ListRow from '../components/grocery/ListRow';
 import ActionButton from '../components/grocery/ActionButton';
 import ListEditingModal from '../components/grocery/ListEditingModal';
-import ListSelectionModal from '../components/grocery/ListSelectionModal';
 import ShareListModal from '../components/grocery/ShareListModal';
 import PendingSharesNotification from '../components/grocery/PendingSharesNotification';
 import ItemEditingModal from '../components/grocery/ItemEditingModal';
@@ -26,7 +25,6 @@ export default function Grocery() {
     notification,
     editingList,
     editingListName,
-    showListSelection,
     showShareModal,
     showPendingShares,
     editingItem,
@@ -47,7 +45,6 @@ export default function Grocery() {
     setNotification,
     setEditingList,
     setEditingListName,
-    setShowListSelection,
     setShowShareModal,
     setShowPendingShares,
     setEditingItem,
@@ -226,19 +223,6 @@ export default function Grocery() {
           setEditingListName('');
         }}
         onChange={setEditingListName}
-      />
-
-      <ListSelectionModal
-        isOpen={showListSelection}
-        lists={combinedLists}
-        onSelect={(listId) => {
-          const targetList = combinedLists.find(list => list.id === listId);
-          if (targetList) {
-            selectList(targetList);
-          }
-          setShowListSelection(false);
-        }}
-        onCancel={() => setShowListSelection(false)}
       />
 
       <ShareListModal

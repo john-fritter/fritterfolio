@@ -12,7 +12,6 @@ export const useGroceryItems = (listId, updateListCount) => {
   const fetchItems = useCallback(async (targetListId = listId, force = false) => {
     // If no ID provided and no current listId, clear items
     if (!targetListId) {
-      console.log('No list ID provided, clearing items');
       setItems([]);
       setLastFetchedListId(null);
       return [];
@@ -27,11 +26,8 @@ export const useGroceryItems = (listId, updateListCount) => {
   
     try {
       setItemsLoading(true);
-      console.log('Fetching items for list:', listIdToUse);
       
-      const rawResponse = await api.getGroceryItems(listIdToUse);
-      console.log('Received response:', rawResponse);
-      
+      const rawResponse = await api.getGroceryItems(listIdToUse);     
       // Handle case where API returns null or undefined
       const fetchedItems = rawResponse || [];
       

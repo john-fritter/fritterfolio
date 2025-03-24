@@ -72,13 +72,11 @@ export const useGroceryLists = (user) => {
 
   // Update list items count
   const updateListItemsCount = useCallback((listId, delta) => {
-    console.log(`Updating count for list ${listId} by ${delta}`);
     setGroceryLists(prev => {
       const updated = prev.map(list => {
         if (list.id === listId) {
           const items = Array.isArray(list.items) ? list.items : [];
           const currentCount = items.length;
-          console.log(`Current count: ${currentCount}, New count: ${currentCount + delta}`);
           
           if (delta > 0) {
             // Adding items - extend the array
@@ -96,7 +94,6 @@ export const useGroceryLists = (user) => {
         }
         return list;
       });
-      console.log('Updated lists:', updated);
       return updated;
     });
     
