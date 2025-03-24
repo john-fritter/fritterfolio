@@ -1,10 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useAuth } from '../hooks/auth';
-import { useNavigate } from 'react-router-dom';
-import * as api from '../services/api';
-
-// Import validation utils
-import { validateItemName, validateTagName, validateListName, MAX_NAME_LENGTH } from '../utils/validation';
+import { MAX_NAME_LENGTH } from '../utils/validation';
 
 // Import components
 import Notification from '../components/Notification';
@@ -19,823 +13,77 @@ import TagFilterModal from '../components/grocery/TagFilterModal';
 import GroceryView from '../components/grocery/GroceryView';
 
 // Import hooks
-import { useGroceryLists } from '../hooks/grocery/useGroceryLists';
-import { useGroceryItems } from '../hooks/grocery/useGroceryItems';
-import { useMasterList } from '../hooks/grocery/useMasterList';
-import { useListSharing } from '../hooks/grocery/useListSharing';
-import { useGroceryInitialization, VIEWS } from '../hooks/grocery/useGroceryInitialization';
+import { useGroceryController } from '../hooks/grocery/useGroceryController';
+import { VIEWS } from '../hooks/grocery/useGroceryInitialization';
 
 export default function Grocery() {
-  const { user, loading: authLoading } = useAuth();
-  const navigate = useNavigate();
-  const newItemInputRef = useRef(null);
-
-  // Local state
-  const [view, setView] = useState(() => {
-    const savedView = localStorage.getItem('groceryView');
-    return savedView || VIEWS.LISTS;
-  });
-  const [notification, setNotification] = useState(null);
-  const [editingList, setEditingList] = useState(null);
-  const [editingListName, setEditingListName] = useState('');
-  const [showListSelection, setShowListSelection] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [showPendingShares, setShowPendingShares] = useState(true);
-  const [editingItem, setEditingItem] = useState(null);
-  const [allTags, setAllTags] = useState([]);
-  const [currentTagFilter, setCurrentTagFilter] = useState(null);
-  const [showTagFilterModal, setShowTagFilterModal] = useState(false);
-
-  // Use our custom hooks
   const {
-    groceryLists,
-    currentList,
-    listsLoading,
+    // Refs
+    newItemInputRef,
+    
+    // State
+    view,
+    notification,
+    editingList,
+    editingListName,
+    showListSelection,
+    showShareModal,
+    showPendingShares,
+    editingItem,
+    allTags,
+    currentTagFilter,
+    showTagFilterModal,
     newListName,
-    setNewListName,
-    setCurrentList,
-    fetchGroceryLists,
-    createList,
-    deleteList,
-    updateListName,
-    updateListItemsCount
-  } = useGroceryLists(user);
-
-  const {
-    items,
-    itemsLoading,
     newItem,
+    
+    // Data
+    items,
+    masterList,
+    currentList,
+    combinedLists,
+    pendingShares,
+    syncNotification,
+    
+    setNotification,
+    setEditingList,
+    setEditingListName,
+    setShowListSelection,
+    setShowShareModal,
+    setShowPendingShares,
+    setEditingItem,
+    setCurrentTagFilter,
+    setShowTagFilterModal,
+    setNewListName,
     setNewItem,
-    fetchItems,
-    addItem,
-    deleteItem,
+    
+    // Computed values
+    determineLoadingState,
+    getMenuItems,
+    
+    // Handlers
+    selectList,
+    handleCreateList,
+    handleShareList,
+    handleAcceptShare,
+    handleRejectShare,
+    handleDeleteTag,
+    handleUpdateItem,
+    handleDeleteList,
+    handleShareListFromListsView,
+    handleAddNewItem,
+    handleUpdateListName,
+    
+    // Actions from other hooks
     toggleItem,
     toggleAllItems,
-    updateItem
-  } = useGroceryItems(currentList?.id, updateListItemsCount);
-
-  const {
-    masterList,
-    masterLoading,
-    fetchMasterList,
-    addToMasterList,
-    deleteMasterItem,
+    deleteItem,
     toggleMasterItem,
     toggleAllMasterItems,
-    updateMasterItem
-  } = useMasterList(user);
-
-  const {
-    pendingShares,
-    acceptedShares,
-    sharingLoading,
-    shareList: shareListWithUser,
-    acceptShare,
-    rejectShare,
-    fetchAcceptedShares,
-    syncNotification,
-    clearSyncNotification
-  } = useListSharing(user);
-
-  // Use our initialization hook
-  const {
-    isInitializing,
-    setIsInitializing,
-    initialView,
-    setInitialView,
-    masterListFetchedRef,
-    listViewItemsFetchedRef,
-    findListById
-  } = useGroceryInitialization({
-    user,
-    authLoading,
-    fetchGroceryLists,
-    fetchAcceptedShares,
-    fetchMasterList,
-    fetchItems,
-    setCurrentList,
-    setView,
-    currentList,
-    view,
-    pendingShares
-  });
-
-  // First effect: Handle authentication redirect
-  useEffect(() => {
-    if (authLoading) return;
-
-    if (!user) {
-      sessionStorage.setItem('loginRedirect', window.location.pathname);
-      navigate('/login');
-    }
-  }, [user, authLoading, navigate]);
-
-  // Save view to localStorage
-  useEffect(() => {
-    // Skip localStorage updates during initialization
-    if (isInitializing) return;
+    deleteMasterItem,
+    clearSyncNotification,
     
-    localStorage.setItem('groceryView', view);
-    
-    // Reset fetch flags when view changes to ensure fresh data on next access
-    if (view === VIEWS.MASTER) {
-      listViewItemsFetchedRef.current = false; // Reset list items flag
-    } else if (view === VIEWS.LIST) {
-      masterListFetchedRef.current = false; // Reset master list flag
-    } else if (view === VIEWS.LISTS) {
-      // Reset both flags when going to lists view
-      masterListFetchedRef.current = false;
-      listViewItemsFetchedRef.current = false;
-    }
-    
-    // If we're in list view but don't have a list, try to fall back to lists view
-    // Only do this after initialization is complete
-    if (view === VIEWS.LIST && !currentList && !isInitializing) {
-      setView(VIEWS.LISTS);
-    }
-  }, [view, currentList, setView, isInitializing, masterListFetchedRef, listViewItemsFetchedRef]);
-
-  // Save current list ID to localStorage
-  useEffect(() => {
-    // Skip localStorage updates during initialization to prevent redundant state changes
-    if (isInitializing) {
-      return;
-    }
-    
-    // Only run if currentList is defined and has changed
-    if (currentList?.id) {
-      localStorage.setItem('currentListId', currentList.id.toString());
-    } else if (currentList === null) {
-      // Only remove if explicitly null (not just undefined during initial load)
-      localStorage.removeItem('currentListId');
-    }
-  }, [currentList, isInitializing]);
-
-  // Effect to set editing name when list is selected for editing
-  useEffect(() => {
-    if (editingList) {
-      setEditingListName(editingList.name);
-    }
-  }, [editingList]);
-
-  // Keep new item input focused
-  useEffect(() => {
-    if (newItemInputRef.current && document.activeElement !== newItemInputRef.current) {
-      newItemInputRef.current.focus();
-    }
-  }, [newItem]);
-
-  // Derived state for loading conditions
-  const determineLoadingState = useCallback(() => {
-    // Always show loading during initialization
-    if (isInitializing) {
-      return true;
-    }
-    
-    // For lists view, only show loading on initial fetch with no data
-    if (view === VIEWS.LISTS) {
-      return (listsLoading && groceryLists.length === 0) || 
-             (sharingLoading && acceptedShares.length === 0);
-    }
-    
-    // For list view, consider it loading if we're currently fetching items
-    // This prevents flickering by showing a loading state during refetches
-    if (view === VIEWS.LIST) {
-      return itemsLoading;
-    }
-    
-    // For master view, only show loading when we have no items
-    return masterLoading && (!masterList || !masterList.items || masterList.items.length === 0);
-  }, [isInitializing, view, listsLoading, groceryLists.length, sharingLoading, acceptedShares.length, itemsLoading, masterLoading, masterList]);
-
-  // Combine accepted shares with grocery lists
-  const combinedLists = useMemo(() => {
-    // Format shared lists with all necessary properties
-    const sharedListsFormatted = acceptedShares.map(share => ({
-      id: share.list_id,
-      name: share.list_name,
-      is_shared: true,
-      shared_with_email: share.owner_email,
-      items: share.items || [],
-      is_received_share: true,
-      has_pending_share: false
-    }));
-
-    // Make sure own lists have consistent properties
-    const ownListsFormatted = groceryLists.map(list => {
-      // Keep the has_pending_share status from the database response
-      const hasPendingShare = list.has_pending_share;
-      
-      return {
-        ...list,
-        is_received_share: false,
-        has_pending_share: hasPendingShare,
-        is_shared: list.is_shared || hasPendingShare,
-        items: Array.isArray(list.items) ? list.items : []
-      };
-    });
-
-    return [...ownListsFormatted, ...sharedListsFormatted];
-  }, [groceryLists, acceptedShares]);
-
-  // Handle list selection - very important for navigation between views
-  const selectList = useCallback((list) => {
-    if (!list || !list.id) {
-      console.error('Cannot select list: Invalid list data received', list);
-      return;
-    }
-
-    // Don't allow selecting lists with temporary IDs
-    if (typeof list.id === 'string' && list.id.startsWith('temp-')) {
-      console.error('Cannot select list: List has a temporary ID', list);
-      setNotification({
-        message: "This list is still being created. Please wait a moment and try again.",
-        type: "warning"
-      });
-      return;
-    }
-    
-    try {
-      // Reset fetch flags whenever we explicitly select a list
-      masterListFetchedRef.current = false;
-      listViewItemsFetchedRef.current = true; // Set to true since we're about to fetch
-      
-      // Show loading state during transition and set the initial view to LIST
-      // This prevents flickering through lists view
-      setIsInitializing(true);
-      setInitialView(VIEWS.LIST);
-      
-      // Fetch items first, before changing any state
-      // This improves performance by reducing state updates
-      fetchItems(list.id, true)
-        .then(() => {
-          // After items are loaded, batch update all the states          
-          // Update localStorage
-          localStorage.setItem('currentListId', list.id.toString());
-          localStorage.setItem('groceryView', VIEWS.LIST);
-          
-          // Update app state with the list, preserving its pending share status
-          setCurrentList({
-            ...list,
-            has_pending_share: list.has_pending_share,
-            is_shared: list.is_shared || list.has_pending_share
-          });
-          setView(VIEWS.LIST);
-          
-          // End loading state only after everything is updated
-          setIsInitializing(false);
-          setInitialView(null);
-        })
-        .catch((error) => {
-          console.error('Error fetching items:', error);
-          setNotification({
-            message: "Failed to load list items. Please try again.",
-            type: "error"
-          });
-          
-          // Still update state even if fetch fails
-          localStorage.setItem('currentListId', list.id.toString());
-          localStorage.setItem('groceryView', VIEWS.LIST);
-          
-          // Update app state with the list, preserving its pending share status
-          setCurrentList({
-            ...list,
-            has_pending_share: list.has_pending_share,
-            is_shared: list.is_shared || list.has_pending_share
-          });
-          setView(VIEWS.LIST);
-          
-          setIsInitializing(false);
-          setInitialView(null);
-        });
-    } catch (error) {
-      console.error('Error during list selection:', error);
-      setNotification({
-        message: "An unexpected error occurred. Please try again.",
-        type: "error"
-      });
-      setIsInitializing(false);
-      setInitialView(null);
-    }
-  }, [setView, setCurrentList, fetchItems, setIsInitializing, setInitialView, masterListFetchedRef, listViewItemsFetchedRef]);
-
-  // Handle list creation
-  const handleCreateList = async (e) => {
-    e.preventDefault();
-    if (!newListName.trim()) return;
-    
-    const validation = validateListName(newListName);
-    if (!validation.isValid) {
-      setNotification({
-        message: validation.error,
-        type: "error"
-      });
-      return;
-    }
-
-    try {
-      // Show loading during list creation and set initial view to LIST
-      setIsInitializing(true);
-      setInitialView(VIEWS.LIST);
-      
-      const newList = await createList(newListName);
-      setNewListName('');
-      
-      // Update localStorage and state
-      localStorage.setItem('currentListId', newList.id.toString());
-      localStorage.setItem('groceryView', VIEWS.LIST);
-      
-      // Set view to LIST
-      setView(VIEWS.LIST);
-      
-      // End loading state
-      setIsInitializing(false);
-      setInitialView(null);
-    } catch (error) {
-      console.error('Error creating list:', error);
-      setNotification({
-        message: "Failed to create list",
-        type: "error"
-      });
-      setIsInitializing(false);
-      setInitialView(null);
-    }
-  };
-
-  // Handle sharing a list
-  const handleShareList = async (email) => {
-    if (!currentList) return false;
-    
-    try {
-      await shareListWithUser(currentList.id, email);
-      
-      // Show success notification
-      setNotification({
-        message: `Share invitation sent to ${email}`,
-        type: "success"
-      });
-      
-      // Refresh the lists to get updated pending shares status
-      const updatedLists = await fetchGroceryLists(true);
-      
-      // Find the updated list data
-      const updatedList = updatedLists.find(list => list.id === currentList.id);
-      if (updatedList) {
-        // Update the current list with the latest data, ensuring pending share status
-        setCurrentList({
-          ...updatedList,
-          has_pending_share: true,
-          is_shared: true
-        });
-      }
-      
-      return true;
-    } catch (error) {
-      // Show error notification
-      setNotification({
-        message: error.message || "Failed to share list",
-        type: "error"
-      });
-      // Re-throw the error to be handled by the modal
-      throw error;
-    }
-  };
-
-  // Handle accepting a shared list
-  const handleAcceptShare = async (shareId) => {
-    try {
-      const acceptedShares = await acceptShare(shareId);
-      
-      if (acceptedShares) {
-        // Force refresh grocery lists to ensure UI is up to date
-        await fetchGroceryLists(true);
-        
-        setNotification({
-          message: "Shared list accepted",
-          type: "success"
-        });
-        
-        // If we don't have a current list selected, select the most recently accepted one
-        if (!currentList && acceptedShares.length > 0) {
-          const mostRecentShare = acceptedShares[0];
-          const newListData = {
-            id: mostRecentShare.list_id,
-            name: mostRecentShare.list_name,
-            is_shared: true,
-            shared_with_email: mostRecentShare.owner_email,
-            is_received_share: true,
-            items: mostRecentShare.items || []
-          };
-          setCurrentList(newListData);
-          setView(VIEWS.LIST);
-        }
-      }
-    } catch {
-      setNotification({
-        message: "Failed to accept shared list",
-        type: "error"
-      });
-    }
-  };
-
-  // Handle rejecting a shared list
-  const handleRejectShare = async (shareId) => {
-    try {
-      const result = await rejectShare(shareId);
-      
-      if (result) {
-        setNotification({
-          message: "Shared list declined",
-          type: "success"
-        });
-      }
-    } catch {
-      setNotification({
-        message: "Failed to decline shared list",
-        type: "error"
-      });
-    }
-  };
-
-  const handleDeleteTag = async (tag) => {
-    try {
-      await api.deleteTag(tag.text);
-      setAllTags(prev => prev.filter(t => t.text !== tag.text));
-      setNotification({
-        message: `Tag "${tag.text}" deleted`,
-        type: "success"
-      });
-    } catch (error) {
-      console.error('Error deleting tag:', error);
-      setNotification({
-        message: "Failed to delete tag",
-        type: "error"
-      });
-    }
-  };
-
-  // Handle item update
-  const handleUpdateItem = async (itemId, updates) => {
-    try {
-      // Validate item name if it's being updated
-      if (updates.name) {
-        const validation = validateItemName(updates.name);
-        if (!validation.isValid) {
-          setNotification({
-            message: validation.error,
-            type: "error"
-          });
-          return;
-        }
-      }
-
-      // Validate tags if they're being updated
-      if (updates.tags) {
-        for (const tag of updates.tags) {
-          const validation = validateTagName(tag.text);
-          if (!validation.isValid) {
-            setNotification({
-              message: validation.error,
-              type: "error"
-            });
-            return;
-          }
-        }
-
-        setAllTags(prev => {
-          const newTags = updates.tags.filter(newTag => 
-            !prev.some(existingTag => existingTag.text === newTag.text)
-          );
-          return [...prev, ...newTags];
-        });
-      }
-
-      // Update the item in the appropriate list based on the view
-      if (view === VIEWS.MASTER) {
-        await updateMasterItem(itemId, updates);
-      } else {
-        // First update the item in the current list
-        const updatedItem = await updateItem(itemId, updates);
-
-        // Find the corresponding item in the master list by name
-        const masterItem = masterList?.items?.find(item => 
-          item.name.toLowerCase() === updatedItem.name.toLowerCase()
-        );
-
-        // If found in master list, update it there too
-        if (masterItem) {
-          await updateMasterItem(masterItem.id, updates);
-        } else {
-          // If not found in master list, add it
-          await addToMasterList(updatedItem.name, updatedItem.tags);
-        }
-      }
-
-      setEditingItem(null);
-    } catch (error) {
-      console.error('Error updating item:', error);
-      setNotification({
-        message: error.message || "Failed to update item",
-        type: "error"
-      });
-    }
-  };
-
-  // Handle list deletion with notification
-  const handleDeleteList = useCallback((listId) => {
-    if (window.confirm('Are you sure you want to delete this list?')) {
-      deleteList(listId)
-        .then(() => {
-          // Force refresh grocery lists after deletion
-          fetchGroceryLists(true)
-            .then(() => {
-              setNotification({
-                message: "List deleted successfully",
-                type: "success"
-              });
-            });
-        })
-        .catch(() => {
-          setNotification({
-            message: "Failed to delete the list. Please try again.",
-            type: "error"
-          });
-        });
-    }
-  }, [deleteList, fetchGroceryLists, setNotification]);
-
-  // Handle sharing a list from lists view
-  const handleShareListFromListsView = useCallback((listId) => {
-    // Find the list to set it as current list temporarily 
-    const listToShare = groceryLists.find(list => list.id === listId);
-    
-    // Only proceed if the list exists and is not already shared or pending
-    if (listToShare && !listToShare.is_shared && !listToShare.has_pending_share) {
-      setCurrentList(listToShare);
-      setShowShareModal(true);
-    } else if (listToShare && listToShare.is_shared) {
-      // If list is already shared, show message
-      setNotification({
-        message: "This list is already shared",
-        type: "info"
-      });
-    } else if (listToShare && listToShare.has_pending_share) {
-      // If list has a pending share, show message
-      setNotification({
-        message: "This list has a pending share invitation",
-        type: "info"
-      });
-    }
-  }, [groceryLists, setCurrentList, setNotification]);
-
-  // Menu items for each view
-  const getMenuItems = useCallback(() => {
-    // During initialization, don't show any menu items
-    if (isInitializing) {
-      return [];
-    }
-    
-    const baseItems = [
-      { 
-        label: "All Lists",
-        action: () => setView(VIEWS.LISTS),
-        show: view !== VIEWS.LISTS
-      },
-      { 
-        label: "Master List",
-        action: () => {
-          setIsInitializing(true);
-          
-          // Reset the master list fetch flag to ensure fresh data
-          masterListFetchedRef.current = true; // Set to true since we're about to fetch
-          
-          // Always fetch fresh data 
-          fetchMasterList()
-            .then(() => {
-              // After successful fetch, switch view
-              setView(VIEWS.MASTER);
-              setIsInitializing(false);
-            })
-            .catch(() => {
-              console.error('Error fetching master list');
-              masterListFetchedRef.current = false; // Reset on error
-              setIsInitializing(false);
-            });
-        },
-        show: view !== VIEWS.MASTER
-      },
-      { 
-        label: currentList ? `View ${currentList.name}` : "Current List",
-        action: () => {
-          if (currentList) {
-            setIsInitializing(true);
-            
-            // Set the list items fetch flag to avoid infinite loops
-            listViewItemsFetchedRef.current = true;
-            
-            fetchItems(currentList.id, true)
-              .then(() => {
-                setView(VIEWS.LIST);
-                setIsInitializing(false);
-              })
-              .catch(() => {
-                listViewItemsFetchedRef.current = false; // Reset on error
-                setIsInitializing(false);
-              });
-          }
-        },
-        show: view !== VIEWS.LIST && currentList !== null
-      }
-    ];
-
-    const listViewItems = [
-      {
-        label: "Filter by Tag",
-        action: () => setShowTagFilterModal(true),
-        show: view === VIEWS.LIST && items?.some(item => item.tags?.length > 0)
-      },
-      { 
-        label: "Share Current List", 
-        action: () => setShowShareModal(true),
-        show: view === VIEWS.LIST && currentList !== null && !currentList.is_shared && !currentList.has_pending_share
-      }
-    ];
-
-    const masterViewItems = [
-      { 
-        label: "Filter by Tag",
-        action: () => setShowTagFilterModal(true),
-        show: view === VIEWS.MASTER && masterList?.items?.some(item => item.tags?.length > 0)
-      },
-      { 
-        label: "Add Selected to Current List", 
-        action: () => {
-          if (!currentList) return;
-          // Ensure masterList exists before accessing its items
-          if (!masterList?.items) return;
-          
-          const selectedMasterItems = masterList.items.filter(item => item.completed);
-          
-          if (selectedMasterItems.length === 0) {
-            setNotification({
-              message: "No items selected to add",
-              type: "warning"
-            });
-            return;
-          }
-          
-          // Track successfully added items, duplicates, and errors
-          let addedItems = 0;
-          let duplicateItems = 0;
-          let errorItems = 0;
-          let atLeastOneProcessed = false;
-          
-          Promise.all(selectedMasterItems.map(async (item) => {
-            try {
-              // Check if item already exists in the current list
-              const isDuplicate = items.some(existingItem => 
-                existingItem.name.toLowerCase() === item.name.toLowerCase()
-              );
-              
-              if (isDuplicate) {
-                duplicateItems++;
-                atLeastOneProcessed = true;
-                return { status: 'duplicate', item };
-              }
-              
-              // Add to the current list
-              await addItem(item.name);
-              addedItems++;
-              atLeastOneProcessed = true;
-              
-              // Always add to master list and untoggle
-              await addToMasterList(item.name);
-              await toggleMasterItem(item.id, false);
-              
-              return { status: 'success', item };
-            } catch (error) {
-              // Handle different types of errors
-              if (error.message === 'This item is already in your list') {
-                duplicateItems++;
-              } else {
-                console.error("Error adding item:", error);
-                errorItems++;
-              }
-              return { status: 'error', item, error };
-            }
-          }))
-          .then(() => {
-            // After all operations complete, determine the appropriate notification
-            if (addedItems === 0 && errorItems === 0) {
-              // Only duplicates - no successful additions and no errors
-              setNotification({
-                message: `No new items added. All ${duplicateItems} selected items already exist in ${currentList.name}`,
-                type: "warning"
-              });
-            } else if (addedItems > 0 && errorItems === 0) {
-              // Some additions succeeded and no errors
-              setNotification({
-                message: `${addedItems} item(s) added to ${currentList.name}${duplicateItems > 0 ? ` (${duplicateItems} duplicate(s) skipped)` : ''}`,
-                type: "success"
-              });
-            } else if (errorItems > 0) {
-              // Some or all additions failed due to server errors
-              setNotification({
-                message: `${addedItems > 0 ? `${addedItems} item(s) added, but ` : ''}${errorItems} item(s) failed to add due to a server error${duplicateItems > 0 ? ` (${duplicateItems} duplicate(s) skipped)` : ''}`,
-                type: "error"
-              });
-            }
-            
-            // Refresh the items list if at least one operation was processed
-            if (atLeastOneProcessed) {
-              fetchItems(currentList.id);
-            }
-          })
-          .catch(error => {
-            // This would only happen if the Promise.all itself fails
-            console.error("Fatal error in batch processing:", error);
-            setNotification({
-              message: "An unexpected error occurred. Please try again.",
-              type: "error"
-            });
-          });
-        },
-        show: view === VIEWS.MASTER && currentList !== null && masterList?.items?.some(item => item.completed)
-      }
-    ];
-
-    const deleteSelectedItems = {
-      label: "Delete Selected Items",
-      action: () => {
-        const selectedItems = view === VIEWS.LIST 
-          ? items.filter(item => item.completed)
-          : masterList?.items?.filter(item => item.completed);
-
-        if (!selectedItems?.length) {
-          setNotification({
-            message: "No items selected to delete",
-            type: "warning"
-          });
-          return;
-        }
-
-        Promise.all(selectedItems.map(item => 
-          view === VIEWS.LIST ? deleteItem(item.id) : deleteMasterItem(item.id)
-        )).then(() => {
-          setNotification({
-            message: `${selectedItems.length} item(s) deleted`,
-            type: "success"
-          });
-        });
-      },
-      show: (view === VIEWS.LIST && items?.some(item => item.completed)) || 
-            (view === VIEWS.MASTER && masterList?.items?.some(item => item.completed))
-    };
-
-    return [
-      ...baseItems,
-      ...listViewItems,
-      ...masterViewItems,
-      deleteSelectedItems
-    ];
-  }, [isInitializing, view, currentList, items, masterList.items, setIsInitializing, masterListFetchedRef, fetchMasterList, listViewItemsFetchedRef, fetchItems, addItem, addToMasterList, toggleMasterItem, deleteItem, deleteMasterItem]);
-
-  // Handler for adding a new item to prevent duplicate master list entries
-  const handleAddNewItem = useCallback(async () => {
-    if (!newItem.trim()) return;
-
-    const validation = validateItemName(newItem);
-    if (!validation.isValid) {
-      setNotification({
-        message: validation.error,
-        type: "error"
-      });
-      return;
-    }
-    
-    // Track if we're in the process of adding to prevent duplicates
-    const itemToAdd = newItem.trim();
-    setNewItem(''); // Clear input immediately to prevent double submissions
-    
-    try {
-      // First check if the item already exists in the master list to avoid duplicates
-      const normalizedName = itemToAdd.toLowerCase();
-      // Safely check masterList and its items
-      const existsInMasterList = masterList?.items?.some(item => 
-        item.name.toLowerCase().trim() === normalizedName
-      ) || false;
-      
-      // Add to current list and also to master list if needed
-      await addItem(itemToAdd, existsInMasterList ? null : addToMasterList);
-    } catch (error) {
-      setNotification({
-        message: error.message || "Failed to add item",
-        type: "error"
-      });
-      // Restore the input value if there was an error
-      setNewItem(itemToAdd);
-    }
-  }, [newItem, setNewItem, addItem, addToMasterList, masterList, setNotification]);
+    initialView
+  } = useGroceryController();
 
   // Create add item form
   const addItemForm = (view === VIEWS.LIST || view === VIEWS.MASTER) && (
@@ -898,24 +146,6 @@ export default function Grocery() {
       />
     </form>
   );
-
-  // Handle list name update
-  const handleUpdateListName = async (listId, newName) => {
-    try {
-      await updateListName(listId, newName);
-      // After updating the list name, also refresh shared lists
-      await fetchAcceptedShares();
-      setNotification({
-        message: "List name updated successfully",
-        type: "success"
-      });
-    } catch {
-      setNotification({
-        message: "Failed to update list name",
-        type: "error"
-      });
-    }
-  };
 
   return (
     <div className="pr-6 md:pr-0 max-w-[calc(100%-24px)] md:max-w-full mx-auto">
@@ -1000,14 +230,11 @@ export default function Grocery() {
 
       <ListSelectionModal
         isOpen={showListSelection}
-        lists={groceryLists}
+        lists={combinedLists}
         onSelect={(listId) => {
-          // Find the list using the helper function
-          const targetList = findListById(listId, groceryLists, acceptedShares);
+          const targetList = combinedLists.find(list => list.id === listId);
           if (targetList) {
             selectList(targetList);
-          } else {
-            console.error('Could not find list with ID:', listId);
           }
           setShowListSelection(false);
         }}
