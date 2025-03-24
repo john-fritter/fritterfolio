@@ -127,6 +127,14 @@ app.get('/api/grocery-lists', authenticate, async (req, res) => {
            sl.status
          FROM shared_lists sl
          WHERE sl.owner_id = $1 AND sl.status = 'accepted'
+       ),
+       pending_shares AS (
+         SELECT
+           sl.list_id,
+           COUNT(*) > 0 as has_pending_share
+         FROM shared_lists sl
+         WHERE sl.owner_id = $1 AND sl.status = 'pending'
+         GROUP BY sl.list_id
        )
        SELECT 
          gl.id,
@@ -135,10 +143,12 @@ app.get('/api/grocery-lists', authenticate, async (req, res) => {
          gl.created_at,
          gl.is_shared,
          si.shared_with_email,
+         COALESCE(ps.has_pending_share, false) as has_pending_share,
          COALESCE(li.items, '[]'::json) as items
        FROM grocery_lists gl
        LEFT JOIN list_items li ON gl.id = li.list_id
        LEFT JOIN share_info si ON gl.id = si.list_id
+       LEFT JOIN pending_shares ps ON gl.id = ps.list_id
        WHERE gl.owner_id = $1
        ORDER BY gl.created_at DESC`,
       [req.user.id]
@@ -1117,12 +1127,6 @@ app.post('/api/grocery-lists/:listId/share', authenticate, async (req, res) => {
         [listId, req.user.id, email.toLowerCase(), sharedWithId, 'pending']
       );
       
-      // Update the list to mark it as shared and include recipient email
-      await db.query(
-        'UPDATE grocery_lists SET is_shared = true, shared_with_email = $1 WHERE id = $2',
-        [email.toLowerCase(), listId]
-      );
-      
       // Commit the transaction
       await db.query('COMMIT');
       
@@ -1190,6 +1194,12 @@ app.put('/api/shared-lists/:shareId', authenticate, async (req, res) => {
           [req.user.id, shareId]
         );
         
+        // Mark the list as shared and update shared_with_email
+        await db.query(
+          'UPDATE grocery_lists SET is_shared = true, shared_with_email = $1 WHERE id = $2',
+          [req.user.email.toLowerCase(), share.list_id]
+        );
+        
         // When accepting a shared list, add all its items to the user's master list
         // First get or create user's master list
         let masterListResult = await db.query(
@@ -1231,57 +1241,19 @@ app.put('/api/shared-lists/:shareId', authenticate, async (req, res) => {
           GROUP BY gi.id`,
           [share.list_id]
         );
-        
-        // Get all existing master list item names for duplicate checking
-        const existingMasterItems = await db.query(
-          'SELECT LOWER(name) as name FROM master_list_items WHERE master_list_id = $1',
-          [masterListId]
-        );
-        
-        const existingMasterItemNames = new Set(
-          existingMasterItems.rows.map(item => item.name)
-        );
-        
-        // Add items from shared list to master list if they don't already exist
-        for (const item of listItemsResult.rows) {
-          const normalizedName = item.name.toLowerCase().trim();
-          
-          if (!existingMasterItemNames.has(normalizedName)) {
-            // First add the item
-            const newMasterItem = await db.query(
-              'INSERT INTO master_list_items (master_list_id, name) VALUES ($1, $2) RETURNING *',
-              [masterListId, item.name]
-            );
-            
-            // Then add any tags
-            if (item.tags && item.tags.length > 0) {
-              for (const tag of item.tags) {
-                // First, get or create the tag
-                const tagResult = await db.query(
-                  `INSERT INTO tags (text, color, user_id)
-                   VALUES ($1, $2, $3)
-                   ON CONFLICT (text, user_id) DO UPDATE SET color = $2
-                   RETURNING id`,
-                  [tag.text, tag.color, req.user.id]
-                );
-                
-                // Then create the item-tag association
-                await db.query(
-                  'INSERT INTO item_tags_master (item_id, tag_id) VALUES ($1, $2)',
-                  [newMasterItem.rows[0].id, tagResult.rows[0].id]
-                );
-              }
-            }
-            
-            existingMasterItemNames.add(normalizedName);
-          }
-        }
       } else if (status === 'rejected') {
-        // If rejected, update the list to mark it as not shared
-        await db.query(
-          'UPDATE grocery_lists SET is_shared = false, shared_with_email = NULL WHERE id = $1',
-          [share.list_id]
+        // If rejected and there are no other pending shares for this list, remove the pending state
+        const otherPendingShares = await db.query(
+          'SELECT COUNT(*) as count FROM shared_lists WHERE list_id = $1 AND status = $2 AND id != $3',
+          [share.list_id, 'pending', shareId]
         );
+        
+        if (otherPendingShares.rows[0].count === '0') {
+          await db.query(
+            'UPDATE grocery_lists SET is_shared = false, shared_with_email = NULL WHERE id = $1',
+            [share.list_id]
+          );
+        }
       }
       
       // Commit the transaction

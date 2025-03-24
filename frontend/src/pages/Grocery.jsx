@@ -3,8 +3,11 @@ import { useAuth } from '../hooks/auth';
 import { useNavigate } from 'react-router-dom';
 import * as api from '../services/api';
 
+// Import validation utils
+import { validateItemName, validateTagName, validateListName, MAX_NAME_LENGTH } from '../utils/validation';
+
 // Import components
-import Notification from '../components/grocery/Notification';
+import Notification from '../components/Notification';
 import ListRow from '../components/grocery/ListRow';
 import ActionButton from '../components/grocery/ActionButton';
 import ListEditingModal from '../components/grocery/ListEditingModal';
@@ -26,41 +29,6 @@ const VIEWS = {
   LIST: 'list',
   MASTER: 'master',
   LISTS: 'lists'
-};
-
-// Constants
-const MAX_NAME_LENGTH = 30;
-const MAX_TAG_LENGTH = 8;
-
-// Add validation constants
-const VALID_ITEM_NAME_REGEX = /^[a-zA-Z0-9\s\-_.,!?&()']+$/;
-const VALID_TAG_NAME_REGEX = /^[a-zA-Z0-9\-_]+$/;
-
-// Add validation helper functions
-const validateItemName = (name) => {
-  if (!name.trim()) {
-    return { isValid: false, error: "Item name cannot be empty" };
-  }
-  if (name.trim().length > MAX_NAME_LENGTH) {
-    return { isValid: false, error: `Item name cannot exceed ${MAX_NAME_LENGTH} characters` };
-  }
-  if (!VALID_ITEM_NAME_REGEX.test(name.trim())) {
-    return { isValid: false, error: "Item name can only contain letters, numbers, spaces, and basic punctuation (.-_,!?&()'" };
-  }
-  return { isValid: true };
-};
-
-const validateTagName = (name) => {
-  if (!name.trim()) {
-    return { isValid: false, error: "Tag name cannot be empty" };
-  }
-  if (name.trim().length > MAX_TAG_LENGTH) {
-    return { isValid: false, error: `Tag name cannot exceed ${MAX_TAG_LENGTH} characters` };
-  }
-  if (!VALID_TAG_NAME_REGEX.test(name.trim())) {
-    return { isValid: false, error: "Tags can only contain letters, numbers, hyphens, and underscores" };
-  }
-  return { isValid: true };
 };
 
 export default function Grocery() {
@@ -170,13 +138,26 @@ export default function Grocery() {
           };
         }
       }
+
+      // If it's one of our own lists, check for pending shares
+      if (targetList && !targetList.is_received_share) {
+        // Get the pending share status from the original list data if available
+        const originalList = ownLists.find(list => list.id === parsedId);
+        const hasPendingShare = originalList?.has_pending_share || pendingShares.some(share => share.list_id === targetList.id);
+        
+        targetList = {
+          ...targetList,
+          has_pending_share: hasPendingShare,
+          is_shared: targetList.is_shared || hasPendingShare
+        };
+      }
       
       return targetList;
     } catch (error) {
       console.error('Error finding list:', error);
       return null;
     }
-  }, []);
+  }, [pendingShares]);
 
   // First effect: Handle authentication redirect
   useEffect(() => {
@@ -449,15 +430,23 @@ export default function Grocery() {
       is_shared: true,
       shared_with_email: share.owner_email,
       items: share.items || [],
-      is_received_share: true
+      is_received_share: true,
+      has_pending_share: false
     }));
 
     // Make sure own lists have consistent properties
-    const ownListsFormatted = groceryLists.map(list => ({
-      ...list,
-      is_received_share: false, // explicitly mark as not a received share
-      items: Array.isArray(list.items) ? list.items : []
-    }));
+    const ownListsFormatted = groceryLists.map(list => {
+      // Keep the has_pending_share status from the database response
+      const hasPendingShare = list.has_pending_share;
+      
+      return {
+        ...list,
+        is_received_share: false,
+        has_pending_share: hasPendingShare,
+        is_shared: list.is_shared || hasPendingShare,
+        items: Array.isArray(list.items) ? list.items : []
+      };
+    });
 
     return [...ownListsFormatted, ...sharedListsFormatted];
   }, [groceryLists, acceptedShares]);
@@ -498,8 +487,12 @@ export default function Grocery() {
           localStorage.setItem('currentListId', list.id.toString());
           localStorage.setItem('groceryView', VIEWS.LIST);
           
-          // Update app state
-          setCurrentList(list);
+          // Update app state with the list, preserving its pending share status
+          setCurrentList({
+            ...list,
+            has_pending_share: list.has_pending_share,
+            is_shared: list.is_shared || list.has_pending_share
+          });
           setView(VIEWS.LIST);
           
           // End loading state only after everything is updated
@@ -517,7 +510,12 @@ export default function Grocery() {
           localStorage.setItem('currentListId', list.id.toString());
           localStorage.setItem('groceryView', VIEWS.LIST);
           
-          setCurrentList(list);
+          // Update app state with the list, preserving its pending share status
+          setCurrentList({
+            ...list,
+            has_pending_share: list.has_pending_share,
+            is_shared: list.is_shared || list.has_pending_share
+          });
           setView(VIEWS.LIST);
           
           setIsInitializing(false);
@@ -539,20 +537,10 @@ export default function Grocery() {
     e.preventDefault();
     if (!newListName.trim()) return;
     
-    // Check for character limit
-    if (newListName.trim().length > MAX_NAME_LENGTH) {
+    const validation = validateListName(newListName);
+    if (!validation.isValid) {
       setNotification({
-        message: `List name cannot exceed ${MAX_NAME_LENGTH} characters`,
-        type: "error"
-      });
-      return;
-    }
-
-    // Validate list name - only allow alphanumeric characters, spaces, and basic punctuation
-    const validNameRegex = /^[a-zA-Z0-9\s\-_.,!?]+$/;
-    if (!validNameRegex.test(newListName.trim())) {
-      setNotification({
-        message: "List name can only contain letters, numbers, spaces, and basic punctuation (.-_,!?)",
+        message: validation.error,
         type: "error"
       });
       return;
@@ -589,33 +577,40 @@ export default function Grocery() {
 
   // Handle sharing a list
   const handleShareList = async (email) => {
-    if (!currentList) return;
+    if (!currentList) return false;
     
     try {
-      const result = await shareListWithUser(currentList.id, email);
+      await shareListWithUser(currentList.id, email);
       
-      if (result) {
-        // Update the current list to mark it as shared
-        setCurrentList(prevList => ({ 
-          ...prevList, 
-          is_shared: true,
-          shared_with_email: email 
-        }));
-        
-        // Show success notification
-        setNotification({
-          message: `List shared with ${email}`,
-          type: "success"
-        });
-        
-        // Refresh the lists
-        await fetchGroceryLists(true);
-      }
-    } catch {
+      // Show success notification
       setNotification({
-        message: "Failed to share list",
+        message: `Share invitation sent to ${email}`,
+        type: "success"
+      });
+      
+      // Refresh the lists to get updated pending shares status
+      const updatedLists = await fetchGroceryLists(true);
+      
+      // Find the updated list data
+      const updatedList = updatedLists.find(list => list.id === currentList.id);
+      if (updatedList) {
+        // Update the current list with the latest data, ensuring pending share status
+        setCurrentList({
+          ...updatedList,
+          has_pending_share: true,
+          is_shared: true
+        });
+      }
+      
+      return true;
+    } catch (error) {
+      // Show error notification
+      setNotification({
+        message: error.message || "Failed to share list",
         type: "error"
       });
+      // Re-throw the error to be handled by the modal
+      throw error;
     }
   };
 
@@ -787,14 +782,20 @@ export default function Grocery() {
     // Find the list to set it as current list temporarily 
     const listToShare = groceryLists.find(list => list.id === listId);
     
-    // Only proceed if the list exists and is not already shared
-    if (listToShare && !listToShare.is_shared) {
+    // Only proceed if the list exists and is not already shared or pending
+    if (listToShare && !listToShare.is_shared && !listToShare.has_pending_share) {
       setCurrentList(listToShare);
       setShowShareModal(true);
     } else if (listToShare && listToShare.is_shared) {
       // If list is already shared, show message
       setNotification({
         message: "This list is already shared",
+        type: "info"
+      });
+    } else if (listToShare && listToShare.has_pending_share) {
+      // If list has a pending share, show message
+      setNotification({
+        message: "This list has a pending share invitation",
         type: "info"
       });
     }
@@ -869,7 +870,7 @@ export default function Grocery() {
       { 
         label: "Share Current List", 
         action: () => setShowShareModal(true),
-        show: view === VIEWS.LIST && currentList !== null && !currentList.is_shared
+        show: view === VIEWS.LIST && currentList !== null && !currentList.is_shared && !currentList.has_pending_share
       }
     ];
 

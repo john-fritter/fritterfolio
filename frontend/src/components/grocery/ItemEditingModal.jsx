@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
+import { validateItemName, validateTagName, MAX_NAME_LENGTH, MAX_TAG_LENGTH } from '../../utils/validation';
 
 const TAG_COLORS = [
   { name: 'blue', bg: 'bg-blue-100 dark:bg-blue-900', text: 'text-blue-800 dark:text-blue-200' },
@@ -11,40 +12,6 @@ const TAG_COLORS = [
   { name: 'indigo', bg: 'bg-indigo-100 dark:bg-indigo-900', text: 'text-indigo-800 dark:text-indigo-200' },
   { name: 'teal', bg: 'bg-teal-100 dark:bg-teal-900', text: 'text-teal-800 dark:text-teal-200' },
 ];
-
-// Constants
-const MAX_NAME_LENGTH = 30;
-const MAX_TAG_LENGTH = 8;
-
-// Validation constants
-const VALID_ITEM_NAME_REGEX = /^[a-zA-Z0-9\s\-_.,!?&()']+$/;
-const VALID_TAG_NAME_REGEX = /^[a-zA-Z0-9\-_]+$/;
-
-const validateItemName = (name) => {
-  if (!name.trim()) {
-    return { isValid: false, error: "Item name cannot be empty" };
-  }
-  if (name.trim().length > MAX_NAME_LENGTH) {
-    return { isValid: false, error: `Item name cannot exceed ${MAX_NAME_LENGTH} characters` };
-  }
-  if (!VALID_ITEM_NAME_REGEX.test(name.trim())) {
-    return { isValid: false, error: "Item name can only contain letters, numbers, spaces, and basic punctuation (.-_,!?&()'" };
-  }
-  return { isValid: true };
-};
-
-const validateTagName = (name) => {
-  if (!name.trim()) {
-    return { isValid: false, error: "Tag name cannot be empty" };
-  }
-  if (name.trim().length > MAX_TAG_LENGTH) {
-    return { isValid: false, error: `Tag name cannot exceed ${MAX_TAG_LENGTH} characters` };
-  }
-  if (!VALID_TAG_NAME_REGEX.test(name.trim())) {
-    return { isValid: false, error: "Tags can only contain letters, numbers, hyphens, and underscores" };
-  }
-  return { isValid: true };
-};
 
 const Tag = ({ text, color, onRemove }) => (
   <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full ${color ? `bg-${color}-100 dark:bg-${color}-900 text-${color}-800 dark:text-${color}-200` : ''} mr-2 mb-2`}>

@@ -74,7 +74,7 @@ export const useListSharing = (user) => {
     } catch (error) {
       console.error("Error sharing list:", error);
       setSharingError(error.message || "Failed to share list");
-      return false;
+      throw error; // Re-throw the error to be caught by the modal
     } finally {
       setSharingLoading(false);
     }

@@ -4,7 +4,7 @@ import PropTypes from 'prop-types';
 function ShareListModal({ isOpen, onClose, onShare, listName, isShared }) {
   const [email, setEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState(null);
+  const [, setError] = useState(null);
 
   if (!isOpen) return null;
 
@@ -21,11 +21,14 @@ function ShareListModal({ isOpen, onClose, onShare, listName, isShared }) {
     setIsSubmitting(true);
     
     try {
-      await onShare(email);
-      onClose();
+      const result = await onShare(email);
+      if (result) {
+        onClose();
+      }
     } catch (err) {
-      setError(err.message || 'Failed to share list');
-    } finally {
+      // Keep the modal open and display the error
+      const errorMessage = err.message || 'Failed to share list';
+      setError(errorMessage);
       setIsSubmitting(false);
     }
   };
@@ -67,12 +70,6 @@ function ShareListModal({ isOpen, onClose, onShare, listName, isShared }) {
                   The recipient will receive a notification to accept or reject this share.
                 </p>
               </div>
-              
-              {error && (
-                <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-200 rounded text-sm">
-                  {error}
-                </div>
-              )}
               
               <div className="flex justify-end space-x-2">
                 <button
