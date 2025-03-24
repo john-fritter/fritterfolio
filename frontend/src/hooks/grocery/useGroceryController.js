@@ -155,6 +155,22 @@ export function useGroceryController() {
     }
   }, [editingList]);
 
+  // Add effect to fetch available tags
+  useEffect(() => {
+    if (!user || authLoading) return;
+    
+    const fetchAvailableTags = async () => {
+      try {
+        const tags = await api.getTags();
+        setAllTags(tags);
+      } catch (error) {
+        console.error('Error fetching tags:', error);
+      }
+    };
+    
+    fetchAvailableTags();
+  }, [user, authLoading, view, currentList?.id]);
+
   // Keep new item input focused
   useEffect(() => {
     if (newItemInputRef.current && document.activeElement !== newItemInputRef.current) {
@@ -736,10 +752,18 @@ export function useGroceryController() {
 
         Promise.all(selectedItems.map(item => 
           view === VIEWS.LIST ? deleteItem(item.id) : deleteMasterItem(item.id)
-        )).then(() => {
+        ))
+        .then(() => {
           setNotification({
             message: `${selectedItems.length} item(s) deleted`,
             type: "success"
+          });
+        })
+        .catch(error => {
+          console.error("Error deleting items:", error);
+          setNotification({
+            message: `Error deleting items: ${error.message}`,
+            type: "error"
           });
         });
       },

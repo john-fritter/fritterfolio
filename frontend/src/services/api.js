@@ -88,7 +88,7 @@ export const updateGroceryItem = async (itemId, updates) => {
 // Delete a grocery item
 export const deleteGroceryItem = async (itemId) => {
   const headers = { ...getAuthHeader() };
-  const response = await fetch(`${API_URL}/grocery-items/${itemId}`, {
+  const response = await fetch(`${API_URL}/grocery-lists/items/${itemId}`, {
     method: 'DELETE',
     headers
   });
@@ -137,7 +137,7 @@ export const deleteGroceryList = async (listId) => {
 // Update a master list item
 export const updateMasterListItem = async (itemId, updates) => {
   const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
-  const response = await fetch(`${API_URL}/master-list-items/${itemId}`, {
+  const response = await fetch(`${API_URL}/master-list/items/${itemId}`, {
     method: 'PUT',
     headers,
     body: JSON.stringify(updates)
@@ -149,7 +149,7 @@ export const updateMasterListItem = async (itemId, updates) => {
 // Delete a master list item
 export const deleteMasterListItem = async (itemId) => {
   const headers = { ...getAuthHeader() };
-  const response = await fetch(`${API_URL}/master-list-items/${itemId}`, {
+  const response = await fetch(`${API_URL}/master-list/items/${itemId}`, {
     method: 'DELETE',
     headers
   });
@@ -261,7 +261,7 @@ export const shareList = async (listId, email) => {
 export const getPendingSharedLists = async () => {
   const headers = { ...getAuthHeader() };
   
-  const response = await fetch(`${API_URL}/shared-lists/pending`, {
+  const response = await fetch(`${API_URL}/grocery-lists/shared/pending`, {
     headers
   });
   
@@ -276,7 +276,7 @@ export const getPendingSharedLists = async () => {
 export const getAcceptedSharedLists = async () => {
   const headers = { ...getAuthHeader() };
   
-  const response = await fetch(`${API_URL}/shared-lists/accepted`, {
+  const response = await fetch(`${API_URL}/grocery-lists/shared/accepted`, {
     headers
   });
   
@@ -291,7 +291,7 @@ export const getAcceptedSharedLists = async () => {
 export const respondToSharedList = async (shareId, status) => {
   const headers = { ...getAuthHeader(), 'Content-Type': 'application/json' };
   
-  const response = await fetch(`${API_URL}/shared-lists/${shareId}`, {
+  const response = await fetch(`${API_URL}/grocery-lists/shared/${shareId}`, {
     method: 'PUT',
     headers,
     body: JSON.stringify({ status })

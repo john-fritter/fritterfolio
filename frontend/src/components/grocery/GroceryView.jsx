@@ -285,7 +285,14 @@ export default function GroceryView({
                       <ActionButton 
                         title="Delete item"
                         icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
-                        onClick={() => deleteItem(item.id)}
+                        onClick={() => {
+                          deleteItem(item.id)
+                            .catch(error => {
+                              console.error("Failed to delete item:", error);
+                              // Show an alert since we don't have access to the notification system
+                              alert(`Error deleting item: ${error.message}`);
+                            });
+                        }}
                         color="accent"
                         iconColor="text-red-500"
                       />
@@ -343,7 +350,14 @@ export default function GroceryView({
                       <ActionButton 
                         title="Delete item"
                         icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />}
-                        onClick={() => deleteMasterItem(item.id)}
+                        onClick={() => {
+                          deleteMasterItem(item.id)
+                            .catch(error => {
+                              console.error("Failed to delete item:", error);
+                              // Show an alert since we don't have access to the notification system
+                              alert(`Error deleting item: ${error.message}`);
+                            });
+                        }}
                         color="accent"
                         iconColor="text-red-500"
                       />

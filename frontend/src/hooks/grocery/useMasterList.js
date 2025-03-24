@@ -151,6 +151,8 @@ export const useMasterList = (user) => {
       }));
     } catch (error) {
       console.error("Error deleting master item:", error);
+      // Show an alert to the user
+      alert(`Error deleting item: ${error.message}`);
       throw error;
     }
   };
@@ -167,6 +169,8 @@ export const useMasterList = (user) => {
       }));
     } catch (error) {
       console.error("Error toggling master item:", error);
+      // Show an alert to the user
+      alert(`Error updating item: ${error.message}`);
       throw error;
     }
   };
@@ -186,6 +190,8 @@ export const useMasterList = (user) => {
       }));
     } catch (error) {
       console.error("Error toggling all master items:", error);
+      // Show an alert to the user
+      alert(`Error updating items: ${error.message}`);
       throw error;
     }
   };

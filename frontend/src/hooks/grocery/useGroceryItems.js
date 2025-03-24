@@ -116,7 +116,7 @@ export const useGroceryItems = (listId, updateListCount) => {
       }
     } catch (error) {
       console.error("Error deleting item:", error);
-      throw error;
+      throw new Error(`Failed to delete item: ${error.message}`);
     }
   };
 
