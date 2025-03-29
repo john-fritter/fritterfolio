@@ -175,7 +175,7 @@ export default function Grocery() {
   );
 
   return (
-    <div className="pr-6 md:pr-0 max-w-[calc(100%-24px)] md:max-w-full mx-auto">
+    <div className="w-full">
       {notification && (
         <Notification 
           message={notification.message} 
@@ -192,7 +192,7 @@ export default function Grocery() {
         />
       )}
 
-      <div className="w-full max-w-3xl mx-auto px-2 sm:px-4 flex flex-col h-full min-w-0">
+      <div className="w-full flex flex-col h-full min-w-0">
         {/* Show demo mode banner if user is in demo mode */}
         {isDemoMode && (
           <DemoModeBanner onExit={handleExitDemo} />
@@ -246,7 +246,7 @@ export default function Grocery() {
           })}
           addForm={
             view === 'lists' ? addListForm :
-            view === 'list' ? addItemForm :
+            (view === 'list' || view === 'master') ? addItemForm :
             null
           }
         />

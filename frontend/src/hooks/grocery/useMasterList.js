@@ -46,7 +46,6 @@ export const useMasterList = (user) => {
         items: deduplicatedItems
       };
       
-      console.log(`Master list processed with ${deduplicatedItems.length} items:`, deduplicatedItems);
       setMasterList(updatedMasterList);
       setMasterLoading(false);
       

@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import GroceryLayout from '../../layouts/GroceryLayout';
 import ListRow from './ListRow';
 import ActionButton from './ActionButton';
+import SmartTruncatedTags from './SmartTruncatedTags';
 
 // Simplified GroceryView component
 export default function GroceryView({
@@ -252,25 +253,16 @@ export default function GroceryView({
                     />
                   }
                   text={
-                    <div className="flex flex-col">
-                      <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={item.completed ? 'text-lg text-secondary-dm line-through truncate max-w-[50%]' : 'text-lg text-secondary-dm truncate max-w-[50%]'}>
                         {item.name}
                       </span>
                       {item.tags && item.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {item.tags.map(tag => (
-                            <span 
-                              key={tag.text} 
-                              className={`inline-flex items-center text-xs px-2 py-0.5 bg-${tag.color}-100 dark:bg-${tag.color}-900 text-${tag.color}-800 dark:text-${tag.color}-200 rounded-full cursor-pointer`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCurrentTagFilter(tag);
-                              }}
-                            >
-                              {tag.text}
-                            </span>
-                          ))}
-                        </div>
+                        <SmartTruncatedTags
+                          tags={item.tags}
+                          onTagClick={setCurrentTagFilter}
+                          onEditItem={() => setEditingItem(item)}
+                        />
                       )}
                     </div>
                   }
@@ -317,25 +309,16 @@ export default function GroceryView({
                     />
                   }
                   text={
-                    <div className="flex flex-col">
-                      <span className={item.completed ? 'text-lg text-secondary-dm line-through' : 'text-lg text-secondary-dm'}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-lg text-secondary-dm truncate max-w-[50%]">
                         {item.name}
                       </span>
                       {item.tags && item.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {item.tags.map(tag => (
-                            <span 
-                              key={tag.text} 
-                              className={`inline-flex items-center text-xs px-2 py-0.5 bg-${tag.color}-100 dark:bg-${tag.color}-900 text-${tag.color}-800 dark:text-${tag.color}-200 rounded-full cursor-pointer`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCurrentTagFilter(tag);
-                              }}
-                            >
-                              {tag.text}
-                            </span>
-                          ))}
-                        </div>
+                        <SmartTruncatedTags
+                          tags={item.tags}
+                          onTagClick={setCurrentTagFilter}
+                          onEditItem={() => setEditingItem(item)}
+                        />
                       )}
                     </div>
                   }

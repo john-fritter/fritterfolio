@@ -1,17 +1,4 @@
-import { useEffect } from 'react';
-import { useAuth } from '../hooks/auth';
-
-export default function Home() {
-  const { user } = useAuth();
-  
-  useEffect(() => {
-    console.log('Current auth state:', { 
-      isLoggedIn: !!user, 
-      user,
-      token: localStorage.getItem('token')
-    });
-  }, [user]);
-  
+export default function Home() {  
   return (
     <div className="space-y-8">
       <h1 className="text-primary-dm text-4xl font-bold">

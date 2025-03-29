@@ -188,10 +188,8 @@ const demoLogin = async (req, res) => {
     const demoName = 'Demo User';
     
     await db.query('BEGIN');
-    console.log('Transaction started');
     
     // Check if demo user exists
-    console.log('Checking if demo user exists...');
     let result = await db.query(
       'SELECT * FROM users WHERE email = $1',
       [demoEmail]
@@ -200,7 +198,6 @@ const demoLogin = async (req, res) => {
     let user;
     
     if (result.rows.length === 0) {
-      console.log('Demo user does not exist, creating new user');
       // Create demo user if it doesn't exist
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(demoPassword, salt);
@@ -212,14 +209,11 @@ const demoLogin = async (req, res) => {
       );
       
       user = result.rows[0];
-      console.log('New demo user created with ID:', user.id);
     } else {
       user = result.rows[0];
-      console.log('Existing demo user found with ID:', user.id);
     }
     
     // Create a token
-    console.log('Creating auth token for demo user...');
     const token = jwt.sign(
       { userId: user.id },
       process.env.JWT_SECRET,
@@ -238,7 +232,6 @@ const demoLogin = async (req, res) => {
     );
     
     await db.query('COMMIT');
-    console.log('Demo login transaction committed successfully');
     
     res.json({
       token,
@@ -249,12 +242,10 @@ const demoLogin = async (req, res) => {
         isDemo: true
       }
     });
-    console.log('Demo login response sent');
   } catch (err) {
     console.error('Demo login error details:', err);
     try {
       await db.query('ROLLBACK');
-      console.log('Transaction rolled back due to error');
     } catch (rollbackErr) {
       console.error('Error during rollback:', rollbackErr);
     }
