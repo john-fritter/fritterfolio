@@ -5,7 +5,7 @@ export default function DemoModeBanner({ onExit }) {
   const navigate = useNavigate();
 
   return (
-    <div className="bg-accent/10 dark:bg-dark-accent/10 py-2 px-4 rounded-lg mb-4 flex items-center justify-between">
+    <div className="bg-accent/10 dark:bg-dark-accent/10 py-2 px-4 rounded-lg mb-4 flex items-center justify-between m-2">
       <div className="flex items-center">
         <span className="text-sm font-medium text-accent-dm mr-2">Demo Mode</span>
         <span className="text-xs text-secondary-dm">
