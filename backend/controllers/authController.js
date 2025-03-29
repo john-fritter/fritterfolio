@@ -181,7 +181,7 @@ const protectedRoute = (req, res) => {
 
 const demoLogin = async (req, res) => {
   try {
-    console.log('Demo login initiated - SIMPLIFIED VERSION');
+    console.log('Demo login initiated - Resetting demo data');
     // Demo user credentials
     const demoEmail = 'demo@user.com';
     const demoPassword = 'demoaccount'; // Will be hashed
@@ -211,6 +211,99 @@ const demoLogin = async (req, res) => {
       user = result.rows[0];
     } else {
       user = result.rows[0];
+      
+      // Reset demo user's data by deleting all their data
+      await db.query('DELETE FROM grocery_items WHERE list_id IN (SELECT id FROM grocery_lists WHERE owner_id = $1)', [user.id]);
+      await db.query('DELETE FROM grocery_lists WHERE owner_id = $1', [user.id]);
+      await db.query('DELETE FROM item_tags_master WHERE item_id IN (SELECT id FROM master_list_items WHERE master_list_id IN (SELECT id FROM master_lists WHERE user_id = $1))', [user.id]);
+      await db.query('DELETE FROM master_list_items WHERE master_list_id IN (SELECT id FROM master_lists WHERE user_id = $1)', [user.id]);
+      await db.query('DELETE FROM master_lists WHERE user_id = $1', [user.id]);
+      await db.query('DELETE FROM tags WHERE user_id = $1', [user.id]);
+      await db.query('DELETE FROM shared_lists WHERE owner_id = $1 OR shared_with_id = $1', [user.id]);
+    }
+
+    // Create master list for demo user
+    const masterListResult = await db.query(
+      'INSERT INTO master_lists (user_id) VALUES ($1) RETURNING id',
+      [user.id]
+    );
+    const masterListId = masterListResult.rows[0].id;
+
+    // Create demo grocery lists
+    const groceryList1 = await db.query(
+      'INSERT INTO grocery_lists (name, owner_id) VALUES ($1, $2) RETURNING id',
+      ['Weekly Groceries', user.id]
+    );
+    const groceryList2 = await db.query(
+      'INSERT INTO grocery_lists (name, owner_id) VALUES ($1, $2) RETURNING id',
+      ['Party Supplies', user.id]
+    );
+
+    // Create demo tags
+    const tags = [
+      { text: 'Fruit', color: 'green' },
+      { text: 'Veggies', color: 'teal' },
+      { text: 'Dairy', color: 'blue' },
+      { text: 'Bakery', color: 'yellow' },
+      { text: 'Meat', color: 'red' },
+      { text: 'Snacks', color: 'purple' }
+    ];
+
+    // Insert tags and store their IDs
+    const tagIds = {};
+    for (const tag of tags) {
+      const tagResult = await db.query(
+        'INSERT INTO tags (text, color, user_id) VALUES ($1, $2, $3) RETURNING id',
+        [tag.text, tag.color, user.id]
+      );
+      tagIds[tag.text] = tagResult.rows[0].id;
+    }
+
+    // Create demo items with tags
+    const items = [
+      { name: 'Apples', tags: ['Fruit'] },
+      { name: 'Bananas', tags: ['Fruit', 'Snacks'] },
+      { name: 'Bread', tags: ['Bakery'] },
+      { name: 'Milk', tags: ['Dairy'] },
+      { name: 'Cheese', tags: ['Dairy'] },
+      { name: 'Chicken', tags: ['Meat'] },
+      { name: 'Broccoli', tags: ['Veggies'] },
+      { name: 'Carrots', tags: ['Veggies'] },
+      { name: 'Chips', tags: ['Snacks'] }
+    ];
+
+    // Add items to master list and grocery lists
+    for (const item of items) {
+      // Add to master list
+      const masterItemResult = await db.query(
+        'INSERT INTO master_list_items (master_list_id, name) VALUES ($1, $2) RETURNING id',
+        [masterListId, item.name]
+      );
+      const masterItemId = masterItemResult.rows[0].id;
+
+      // Add tags to master item
+      for (const tagName of item.tags) {
+        await db.query(
+          'INSERT INTO item_tags_master (item_id, tag_id) VALUES ($1, $2)',
+          [masterItemId, tagIds[tagName]]
+        );
+      }
+
+      // Add some items to the first grocery list
+      if (['Apples', 'Bananas', 'Milk', 'Bread', 'Broccoli'].includes(item.name)) {
+        await db.query(
+          'INSERT INTO grocery_items (list_id, master_item_id, completed) VALUES ($1, $2, $3)',
+          [groceryList1.rows[0].id, masterItemId, false]
+        );
+      }
+
+      // Add some items to the second grocery list
+      if (['Chips', 'Cheese', 'Carrots'].includes(item.name)) {
+        await db.query(
+          'INSERT INTO grocery_items (list_id, master_item_id, completed) VALUES ($1, $2, $3)',
+          [groceryList2.rows[0].id, masterItemId, false]
+        );
+      }
     }
     
     // Create a token

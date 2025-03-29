@@ -9,7 +9,7 @@ export default function DemoModeBanner({ onExit }) {
       <div className="flex items-center">
         <span className="text-sm font-medium text-accent-dm mr-2">Demo Mode</span>
         <span className="text-xs text-secondary-dm">
-          You&apos;re using a shared demo account. Data will be reset when you log out.
+          You&apos;re using a shared demo account. Data will be reset whenever someone logs in.
         </span>
       </div>
       <div className="flex gap-2">

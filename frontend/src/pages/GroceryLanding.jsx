@@ -14,9 +14,7 @@ export default function GroceryLanding() {
     setError(null);
     
     try {
-      console.log('Starting demo login process...');
       await demoLogin();
-      console.log('Demo login completed successfully');
       setStartingDemo(false);
     } catch (err) {
       console.error('Demo login error:', err);
