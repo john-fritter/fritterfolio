@@ -107,7 +107,6 @@ export function useGroceryInitialization({
         // Define a function to set the correct final state based on saved data
         const finalizeInitialization = (finalView) => {          
           // First set localStorage values to ensure persistence
-          // Setting these outside the initialization effect prevents double updates
           localStorage.setItem('groceryView', finalView);
           
           // Safely access currentList.id only if currentList exists
@@ -119,31 +118,21 @@ export function useGroceryInitialization({
           setView(finalView);
           
           // After initialization is complete, reveal the UI
-          // This is done last to ensure all other updates have been applied
           setIsInitializing(false);
           setInitialView(null);
         };
         
         // After lists are loaded, try to restore saved list
         if (savedListId && savedView === VIEWS.LIST) {
-          
           // Use the helper function to find the list by ID
           const targetList = findListById(savedListId, ownLists, sharedLists);
           
           if (targetList) {
             // Found the saved list - set up list view
-            
-            // Instead of immediately setting states, first fetch items
-            // and THEN batch the state updates to reduce renders
             fetchItems(targetList.id, true)
               .then(() => {
-                // Only now set current list and then finalize                
-                // Batch our state updates
-                // First set the current list
+                // Set current list and finalize
                 setCurrentList(targetList);
-                
-                // Then finalize initialization
-                // This avoids the extra render by setting everything at once
                 finalizeInitialization(VIEWS.LIST);
               })
               .catch((error) => {
@@ -156,34 +145,8 @@ export function useGroceryInitialization({
             if (ownLists.length > 0) {
               setCurrentList(ownLists[0]);
             }
-            
             finalizeInitialization(VIEWS.LISTS);
           }
-        } else if (savedView === VIEWS.MASTER) {
-          // Master view - load master list          
-          // Try to restore the saved list if it exists
-          const targetList = findListById(savedListId, ownLists, sharedLists);
-          
-          if (targetList) {
-            setCurrentList(targetList);
-          } else if (ownLists.length > 0) {
-            // Fallback to first list if target not found
-            setCurrentList(ownLists[0]);
-          }
-          
-          // Mark that we will be fetching the master list during initialization
-          masterListFetchedRef.current = true;
-          
-          // Fetch master list and then finalize initialization with MASTER view
-          fetchMasterList()
-            .then(() => {
-              finalizeInitialization(VIEWS.MASTER);
-            })
-            .catch((error) => {
-              console.error('Error fetching master list:', error);
-              masterListFetchedRef.current = false; // Reset on error
-              finalizeInitialization(VIEWS.MASTER);
-            });
         } else {
           // Default to lists view          
           // Try to restore the saved list if it exists

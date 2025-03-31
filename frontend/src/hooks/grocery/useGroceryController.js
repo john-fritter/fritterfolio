@@ -112,10 +112,17 @@ export function useGroceryController() {
     if (authLoading) return;
 
     if (!user) {
+      // Store the current path before redirecting
       sessionStorage.setItem('loginRedirect', window.location.pathname);
+      
+      // Prevent initialization from running
+      setIsInitializing(false);
+      setInitialView(null);
+      
+      // Navigate to login
       navigate('/login');
     }
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, navigate, setIsInitializing, setInitialView]);
 
   // Save view to localStorage
   useEffect(() => {

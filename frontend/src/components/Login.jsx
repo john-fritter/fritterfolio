@@ -23,6 +23,7 @@ export default function Login() {
     setLoading(true);
     
     try {
+      let user;
       if (isRegistering) {
         // Validate passwords match for registration
         if (password !== confirmPassword) {
@@ -30,38 +31,30 @@ export default function Login() {
         }
         
         // Register with email and password (no name required)
-        await register(email, password);
+        user = await register(email, password);
       } else {
-        await handleLogin(e);
+        user = await login(email, password);
       }
       
-      // Redirect to the homepage or intended destination
-      const redirectPath = sessionStorage.getItem('loginRedirect') || '/';
-      sessionStorage.removeItem('loginRedirect');
-      navigate(redirectPath);
+      // Only redirect if we have a user
+      if (user) {
+        const redirectPath = sessionStorage.getItem('loginRedirect');
+        if (redirectPath) {
+          sessionStorage.removeItem('loginRedirect');
+          navigate(redirectPath);
+        } else {
+          navigate('/');
+        }
+      }
     } catch (error) {
       // Display the error message from the server or a default message
-      setError(error.message || 'An error occurred during authentication');
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    
-    try {
-      await login(email, password);
-    } catch (err) {
-      // Set a user-friendly error message
-      if (err.message === 'Invalid credentials') {
+      if (error.message === 'Invalid credentials') {
         setError('Invalid email or password. Please try again.');
       } else {
-        setError('Login failed. Please check your credentials and try again.');
+        setError(error.message || 'An error occurred during authentication');
       }
-      throw err; // Re-throw to prevent navigation
+    } finally {
+      setLoading(false);
     }
   };
   
