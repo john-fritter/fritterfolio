@@ -181,6 +181,9 @@ export default function GroceryView({
                       <span className="text-lg text-secondary-dm truncate max-w-32 sm:max-w-none">
                         {list.name}
                       </span>
+                      <span className="ml-2 text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded-full">
+                        {list.items?.length || 0} items
+                      </span>
                       {list.is_shared && !list.has_pending_share && (
                         <span className="ml-2 text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
                           <span className="hidden sm:inline">{list.shared_with_email}</span>
