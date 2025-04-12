@@ -233,7 +233,7 @@ const deleteItem = async (req, res) => {
 
     // First check if this master list item belongs to the user
     const masterItemCheck = await db.query(`
-      SELECT mli.id 
+      SELECT mli.id, mli.name
       FROM master_list_items mli
       JOIN master_lists ml ON ml.id = mli.master_list_id
       WHERE mli.id = $1 AND ml.user_id = $2
@@ -247,11 +247,36 @@ const deleteItem = async (req, res) => {
       });
     }
 
+    const itemName = masterItemCheck.rows[0].name;
+
+    // Find all shared lists that the user has access to and that contain this item
+    const sharedListsResult = await db.query(`
+      SELECT DISTINCT gl.id as list_id
+      FROM grocery_lists gl
+      LEFT JOIN shared_lists sl ON sl.list_id = gl.id
+      WHERE (gl.owner_id = $1 OR (sl.shared_with_id = $2 AND sl.status = 'accepted'))
+      AND gl.id IN (
+        SELECT gi.list_id
+        FROM grocery_items gi
+        JOIN master_list_items mli ON mli.id = gi.master_item_id
+        WHERE LOWER(mli.name) = LOWER($3)
+      )
+    `, [userId, userId, itemName]);
+
     // Delete any tag associations first
     await db.query('DELETE FROM item_tags_master WHERE item_id = $1', [itemId]);
     
-    // Delete from grocery_items (this will remove references from all grocery lists)
-    await db.query('DELETE FROM grocery_items WHERE master_item_id = $1', [itemId]);
+    // Delete from grocery_items for all lists the user has access to
+    for (const list of sharedListsResult.rows) {
+      await db.query(`
+        DELETE FROM grocery_items 
+        WHERE list_id = $1 
+        AND master_item_id IN (
+          SELECT id FROM master_list_items 
+          WHERE LOWER(name) = LOWER($2)
+        )
+      `, [list.list_id, itemName]);
+    }
     
     // Finally delete from master_list_items
     await db.query('DELETE FROM master_list_items WHERE id = $1', [itemId]);

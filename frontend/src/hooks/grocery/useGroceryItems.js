@@ -119,14 +119,23 @@ export const useGroceryItems = (listId, updateListCount) => {
   // Toggle item completion
   const toggleItem = async (itemId, completed) => {
     try {
-      await api.updateGroceryItem(itemId, { completed, listId });
+      // Optimistically update the UI immediately
       setItems(prev => 
         prev.map(item => 
           item.id === itemId ? { ...item, completed } : item
         )
       );
+      
+      // Make the API call in the background
+      await api.updateGroceryItem(itemId, { completed, listId });
     } catch (error) {
       console.error("Error toggling item:", error);
+      // Revert the optimistic update on error
+      setItems(prev => 
+        prev.map(item => 
+          item.id === itemId ? { ...item, completed: !completed } : item
+        )
+      );
       throw error;
     }
   };
@@ -134,17 +143,23 @@ export const useGroceryItems = (listId, updateListCount) => {
   // Toggle all items
   const toggleAllItems = async (completed) => {
     try {
+      // Optimistically update the UI immediately
+      setItems(prev => 
+        prev.map(item => ({ ...item, completed }))
+      );
+      
+      // Make the API calls in the background
       const updatePromises = items.map(item => 
         api.updateGroceryItem(item.id, { completed, listId })
       );
       
       await Promise.all(updatePromises);
-      
-      setItems(prev => 
-        prev.map(item => ({ ...item, completed }))
-      );
     } catch (error) {
       console.error("Error toggling all items:", error);
+      // Revert the optimistic update on error
+      setItems(prev => 
+        prev.map(item => ({ ...item, completed: !completed }))
+      );
       throw error;
     }
   };

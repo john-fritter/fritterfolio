@@ -156,15 +156,25 @@ export const useMasterList = (user) => {
   // Toggle master item completion
   const toggleMasterItem = async (itemId, completed) => {
     try {
-      await api.updateMasterListItem(itemId, { completed });
+      // Optimistically update the UI immediately
       setMasterList(prev => ({
         ...prev,
         items: prev.items.map(item => 
           item.id === itemId ? { ...item, completed } : item
         )
       }));
+      
+      // Make the API call in the background
+      await api.updateMasterListItem(itemId, { completed });
     } catch (error) {
       console.error("Error toggling master item:", error);
+      // Revert the optimistic update on error
+      setMasterList(prev => ({
+        ...prev,
+        items: prev.items.map(item => 
+          item.id === itemId ? { ...item, completed: !completed } : item
+        )
+      }));
       // Show an alert to the user
       alert(`Error updating item: ${error.message}`);
       throw error;
@@ -174,18 +184,25 @@ export const useMasterList = (user) => {
   // Toggle all master items
   const toggleAllMasterItems = async (completed) => {
     try {
+      // Optimistically update the UI immediately
+      setMasterList(prev => ({
+        ...prev,
+        items: prev.items.map(item => ({ ...item, completed }))
+      }));
+      
+      // Make the API calls in the background
       const updatePromises = masterList.items.map(item => 
         api.updateMasterListItem(item.id, { completed })
       );
       
       await Promise.all(updatePromises);
-      
-      setMasterList(prev => ({
-        ...prev,
-        items: prev.items.map(item => ({ ...item, completed }))
-      }));
     } catch (error) {
       console.error("Error toggling all master items:", error);
+      // Revert the optimistic update on error
+      setMasterList(prev => ({
+        ...prev,
+        items: prev.items.map(item => ({ ...item, completed: !completed }))
+      }));
       // Show an alert to the user
       alert(`Error updating items: ${error.message}`);
       throw error;
