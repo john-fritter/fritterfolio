@@ -3,7 +3,11 @@ require('dotenv').config();
 
 async function initializeDatabase() {
   try {
-    // Create users table
+    // --- Drop tables that need to be reset ---
+    await db.query(`DROP TABLE IF EXISTS grocery_items CASCADE;`);
+    await db.query(`DROP TABLE IF EXISTS item_tags CASCADE;`);
+
+    // --- Users table ---
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
         id UUID PRIMARY KEY,
@@ -14,44 +18,7 @@ async function initializeDatabase() {
       );
     `);
 
-    // Create sessions table
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id SERIAL PRIMARY KEY,
-        user_id UUID NOT NULL,
-        token TEXT NOT NULL,
-        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      );
-    `);
-
-    // Create grocery_lists table
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS grocery_lists (
-        id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL,
-        owner_id UUID NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
-      );
-    `);
-
-    // Create grocery_items table
-    await db.query(`
-      DROP TABLE IF EXISTS grocery_items CASCADE;
-      CREATE TABLE IF NOT EXISTS grocery_items (
-        id SERIAL PRIMARY KEY,
-        list_id INTEGER NOT NULL,
-        master_item_id INTEGER NOT NULL,
-        completed BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        FOREIGN KEY (list_id) REFERENCES grocery_lists(id) ON DELETE CASCADE,
-        FOREIGN KEY (master_item_id) REFERENCES master_list_items(id) ON DELETE CASCADE
-      );
-    `);
-
-    // Create master_lists table if it doesn't exist
+    // --- Master lists (per user) ---
     await db.query(`
       CREATE TABLE IF NOT EXISTS master_lists (
         id SERIAL PRIMARY KEY,
@@ -61,7 +28,7 @@ async function initializeDatabase() {
       );
     `);
 
-    // Create master_list_items table if it doesn't exist
+    // --- Master list items ---
     await db.query(`
       CREATE TABLE IF NOT EXISTS master_list_items (
         id SERIAL PRIMARY KEY,
@@ -73,7 +40,7 @@ async function initializeDatabase() {
       );
     `);
 
-    // Create tags table if it doesn't exist
+    // --- Tags table ---
     await db.query(`
       CREATE TABLE IF NOT EXISTS tags (
         id SERIAL PRIMARY KEY,
@@ -86,10 +53,7 @@ async function initializeDatabase() {
       );
     `);
 
-    // Drop item_tags table since tags will only be stored with master items
-    await db.query(`DROP TABLE IF EXISTS item_tags CASCADE;`);
-
-    // Create item_tags_master table for master list items
+    // --- Item tags for master list items ---
     await db.query(`
       CREATE TABLE IF NOT EXISTS item_tags_master (
         id SERIAL PRIMARY KEY,
@@ -102,7 +66,43 @@ async function initializeDatabase() {
       );
     `);
 
-    // Create shared_lists table for list sharing functionality
+    // --- Grocery lists ---
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS grocery_lists (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        owner_id UUID NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+
+    // --- Grocery list items (uses master items) ---
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS grocery_items (
+        id SERIAL PRIMARY KEY,
+        list_id INTEGER NOT NULL,
+        master_item_id INTEGER NOT NULL,
+        completed BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        FOREIGN KEY (list_id) REFERENCES grocery_lists(id) ON DELETE CASCADE,
+        FOREIGN KEY (master_item_id) REFERENCES master_list_items(id) ON DELETE CASCADE
+      );
+    `);
+
+    // --- Sessions ---
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id SERIAL PRIMARY KEY,
+        user_id UUID NOT NULL,
+        token TEXT NOT NULL,
+        expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+
+    // --- Shared lists ---
     await db.query(`
       CREATE TABLE IF NOT EXISTS shared_lists (
         id SERIAL PRIMARY KEY,
@@ -118,13 +118,12 @@ async function initializeDatabase() {
       );
     `);
 
-    // Add is_shared column to grocery_lists table
+    // --- Additional columns on grocery_lists ---
     await db.query(`
       ALTER TABLE grocery_lists 
       ADD COLUMN IF NOT EXISTS is_shared BOOLEAN DEFAULT FALSE;
     `);
 
-    // Add shared_with_email column to grocery_lists table
     await db.query(`
       ALTER TABLE grocery_lists 
       ADD COLUMN IF NOT EXISTS shared_with_email TEXT DEFAULT NULL;
@@ -132,10 +131,12 @@ async function initializeDatabase() {
 
     console.log('Database initialized successfully!');
     process.exit(0);
+
   } catch (error) {
-    console.error('Error initializing database:', error);
+    console.error('Error initializing database:', error.message);
+    console.error(error);
     process.exit(1);
   }
 }
 
-initializeDatabase(); 
+initializeDatabase();
