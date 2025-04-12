@@ -166,16 +166,52 @@ export const useGroceryItems = (listId, updateListCount) => {
 
   // Update item
   const updateItem = async (itemId, updates) => {
+    // Store the original item for potential rollback
+    const originalItem = items.find(item => item.id === itemId);
+    
+    // Check if the item exists
+    if (!originalItem) {
+      console.error(`Cannot update item: Item with ID ${itemId} not found`);
+      throw new Error(`Item not found: ${itemId}`);
+    }
+    
+    // Check if the itemId is a temporary ID
+    if (typeof itemId === 'string' && itemId.startsWith('temp-')) {
+      console.error(`Cannot update item with temporary ID: ${itemId}`);
+      throw new Error(`Cannot update item that is still being created: ${itemId}`);
+    }
+    
     try {
+      // Optimistically update the UI immediately
+      setItems(prev => 
+        prev.map(item => 
+          item.id === itemId ? { ...item, ...updates } : item
+        )
+      );
+      
+      // Make the API call in the background
       const updatedItem = await api.updateGroceryItem(itemId, { ...updates, listId });
+      
+      // Update with the server response to ensure consistency
       setItems(prev => 
         prev.map(item => 
           item.id === itemId ? updatedItem : item
         )
       );
+      
       return updatedItem;
     } catch (error) {
       console.error("Error updating item:", error);
+      
+      // Revert the optimistic update on error
+      if (originalItem) {
+        setItems(prev => 
+          prev.map(item => 
+            item.id === itemId ? originalItem : item
+          )
+        );
+      }
+      
       throw error;
     }
   };

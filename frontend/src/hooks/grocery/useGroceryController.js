@@ -440,6 +440,8 @@ export function useGroceryController() {
 
   const handleUpdateItem = async (itemId, updates) => {
     try {
+      console.log("Starting handleUpdateItem with:", { itemId, updates });
+      
       if (updates.name) {
         const validation = validateItemName(updates.name);
         if (!validation.isValid) {
@@ -471,23 +473,51 @@ export function useGroceryController() {
         });
       }
 
+      // Close the modal immediately
+      setEditingItem(null);
+
       if (view === VIEWS.MASTER) {
+        console.log("Updating master item:", itemId);
         await updateMasterItem(itemId, updates);
       } else {
+        console.log("Updating regular item:", itemId);
         const updatedItem = await updateItem(itemId, updates);
+        console.log("Regular item updated successfully:", updatedItem);
 
-        const masterItem = masterList?.items?.find(item => 
-          item.name.toLowerCase() === updatedItem.name.toLowerCase()
-        );
-
-        if (masterItem) {
-          await updateMasterItem(masterItem.id, updates);
+        // First check if the item has a master_item_id
+        if (updatedItem.master_item_id) {
+          console.log("Item has master_item_id:", updatedItem.master_item_id);
+          
+          // Try to update the master item directly
+          try {
+            await updateMasterItem(updatedItem.master_item_id, updates);
+          } catch (error) {
+            console.error("Error updating master item:", error);
+            // If the master item update fails, try to refresh the master list and try again
+            await fetchMasterList();
+            await updateMasterItem(updatedItem.master_item_id, updates);
+          }
         } else {
-          await addToMasterList(updatedItem.name, updatedItem.tags);
+          // Find the corresponding master item by name (case-insensitive)
+          const masterItem = masterList?.items?.find(item => 
+            item.name.toLowerCase() === updatedItem.name.toLowerCase()
+          );
+
+          if (masterItem) {
+            console.log("Found master item by name:", masterItem);
+            await updateMasterItem(masterItem.id, updates);
+          } else {
+            console.log("Adding item to master list:", updatedItem.name);
+            await addToMasterList(updatedItem.name, updatedItem.tags);
+          }
+        }
+
+        // Refresh the items to ensure we have the latest data
+        if (currentList?.id) {
+          console.log("Refreshing items for list:", currentList.id);
+          await fetchItems(currentList.id, true);
         }
       }
-
-      setEditingItem(null);
     } catch (error) {
       console.error('Error updating item:', error);
       setNotification({

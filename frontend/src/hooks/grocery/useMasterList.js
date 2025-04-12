@@ -122,17 +122,48 @@ export const useMasterList = (user) => {
 
   // Update master item
   const updateMasterItem = async (itemId, updates) => {
+    console.log("updateMasterItem called with:", { itemId, updates });
+    
+    // Check if the item exists in the local state
+    const originalItem = masterList.items.find(item => item.id === itemId);
+    
+    // Check if the itemId is a temporary ID
+    if (typeof itemId === 'string' && itemId.startsWith('temp-')) {
+      console.error(`Cannot update master item with temporary ID: ${itemId}`);
+      throw new Error(`Cannot update master item that is still being created: ${itemId}`);
+    }
+    
     try {
+      console.log("Calling API to update master item:", itemId);
       const updatedItem = await api.updateMasterListItem(itemId, updates);
-      setMasterList(prev => ({
-        ...prev,
-        items: prev.items.map(item => 
-          item.id === itemId ? updatedItem : item
-        )
-      }));
+      console.log("API call successful, updating UI with:", updatedItem);
+      
+      // If the item was not in the local state, add it
+      if (!originalItem) {
+        console.log("Item was not in local state, adding it now");
+        setMasterList(prev => ({
+          ...prev,
+          items: [...prev.items, updatedItem]
+        }));
+      } else {
+        // Otherwise, update the existing item
+        setMasterList(prev => ({
+          ...prev,
+          items: prev.items.map(item => 
+            item.id === itemId ? updatedItem : item
+          )
+        }));
+      }
+      
       return updatedItem;
     } catch (error) {
       console.error("Error updating master item:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        itemId,
+        updates
+      });
       throw error;
     }
   };
